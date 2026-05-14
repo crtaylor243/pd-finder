@@ -1,0 +1,31 @@
+{
+  "name": "prairie-finder",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "feed:inat": "tsx src/cli.ts --source=inaturalist",
+    "server": "tsx src/server.ts",
+    "viewer": "vite --host 127.0.0.1",
+    "dev": "tsx src/server.ts",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/d3-geo": "^3.1.0",
+    "@types/geojson": "^7946.0.16",
+    "@types/node": "^20.19.24",
+    "@types/topojson-client": "^3.1.5",
+    "d3-geo": "^3.1.1",
+    "topojson-client": "^3.1.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "us-atlas": "^3.0.1",
+    "vite": "^5.4.21"
+  }
+}

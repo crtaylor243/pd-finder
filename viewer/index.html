@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Prairie Finder</title>
+    <script type="module" src="/src/main.ts"></script>
+  </head>
+  <body>
+    <main id="app">
+      <section class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Live public observations</p>
+            <h1>Prairie Finder</h1>
+          </div>
+          <div class="status-cluster">
+            <span id="connectionStatus" class="status status-waiting">Connecting</span>
+            <span id="syncStatus" class="sync-status">iNaturalist sync pending</span>
+            <button id="pollNow" type="button">Sync now</button>
+          </div>
+        </header>
+
+        <section class="map-shell" aria-label="Prairie dog locator map">
+          <svg id="map" viewBox="0 0 960 610" role="img" aria-label="United States map with prairie dog signals"></svg>
+          <div id="hoverPreview" class="hover-preview" aria-hidden="true">
+            <img id="hoverPreviewImage" alt="" />
+            <div class="hover-preview-meta">
+              <strong id="hoverPreviewTitle"></strong>
+              <span id="hoverPreviewPlace"></span>
+            </div>
+          </div>
+          <div id="emptyState" class="empty-state">
+            <strong>Listening for prairie dog signals</strong>
+            <span>No new public geotagged prairie dog events detected yet.</span>
+          </div>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>

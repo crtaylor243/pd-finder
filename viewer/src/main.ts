@@ -65,6 +65,8 @@ const hoverPreviewImage = requireElement<HTMLImageElement>("#hoverPreviewImage")
 const hoverPreviewTitle = requireElement<HTMLElement>("#hoverPreviewTitle");
 const hoverPreviewPlace = requireElement<HTMLSpanElement>("#hoverPreviewPlace");
 const hoverPreviewTime = requireElement<HTMLTimeElement>("#hoverPreviewTime");
+const hoverPreviewSource = requireElement<HTMLAnchorElement>("#hoverPreviewSource");
+const hoverPreviewClose = requireElement<HTMLButtonElement>("#hoverPreviewClose");
 
 const projection = geoAlbersUsa().translate([480, 305]).scale(1180);
 const path = geoPath(projection);
@@ -72,13 +74,22 @@ const plotted = new Map<string, SVGGElement>();
 const plottedOrder: string[] = [];
 const remoteRealtimeUrl = getRemoteRealtimeUrl();
 const remoteApiBase = remoteRealtimeUrl ? toHttpBase(remoteRealtimeUrl) : undefined;
+const touchQuery = window.matchMedia("(hover: none), (pointer: coarse)");
 let maxVisibleEvents = 25;
 let syncCadenceMs = 10_000;
 let fallbackSyncInterval: number | undefined;
+let selectedMarker: SVGGElement | undefined;
 
 renderMap();
 void loadInitialEvents();
 connectEventStream();
+
+hoverPreviewClose.addEventListener("click", hideHoverPreview);
+svg.addEventListener("click", () => {
+  if (isTouchMode()) {
+    hideHoverPreview();
+  }
+});
 
 async function loadInitialEvents(): Promise<void> {
   const [statusResponse, eventsResponse] = await Promise.all([fetch(apiUrl("/status")), fetch(apiUrl("/events"))]);
@@ -257,6 +268,11 @@ function plotEvent(event: PrairieDogEvent, animate: boolean): void {
   marker.setAttribute("role", "button");
   marker.setAttribute("aria-label", event.display.title);
 
+  const hitTarget = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+  hitTarget.setAttribute("class", "marker-hit-target");
+  hitTarget.setAttribute("r", "18");
+  marker.append(hitTarget);
+
   const ring = document.createElementNS("http://www.w3.org/2000/svg", "circle");
   ring.setAttribute("class", "marker-ring");
   ring.setAttribute("r", "8");
@@ -272,17 +288,40 @@ function plotEvent(event: PrairieDogEvent, animate: boolean): void {
   dot.setAttribute("r", "5");
   marker.append(dot);
 
-  marker.addEventListener("mouseenter", () => showHoverPreview(event));
-  marker.addEventListener("mouseleave", hideHoverPreview);
-  marker.addEventListener("focus", () => showHoverPreview(event));
-  marker.addEventListener("blur", hideHoverPreview);
-  marker.addEventListener("click", () => {
+  marker.addEventListener("mouseenter", () => {
+    if (!isTouchMode()) {
+      showHoverPreview(event, marker);
+    }
+  });
+  marker.addEventListener("mouseleave", () => {
+    if (!isTouchMode()) {
+      hideHoverPreview();
+    }
+  });
+  marker.addEventListener("focus", () => showHoverPreview(event, marker));
+  marker.addEventListener("blur", () => {
+    if (!isTouchMode()) {
+      hideHoverPreview();
+    }
+  });
+  marker.addEventListener("click", (mouseEvent) => {
+    mouseEvent.stopPropagation();
+
+    if (isTouchMode()) {
+      showHoverPreview(event, marker);
+      return;
+    }
+
     window.open(event.source_url, "_blank", "noreferrer");
   });
   marker.addEventListener("keydown", (keyboardEvent) => {
     if (keyboardEvent.key === "Enter" || keyboardEvent.key === " ") {
       keyboardEvent.preventDefault();
-      window.open(event.source_url, "_blank", "noreferrer");
+      showHoverPreview(event, marker);
+    }
+
+    if (keyboardEvent.key === "Escape") {
+      hideHoverPreview();
     }
   });
 
@@ -312,13 +351,21 @@ function enforceVisibleLimit(): void {
       continue;
     }
 
+    if (selectedMarker === marker) {
+      hideHoverPreview();
+    }
+
     marker.classList.add("marker-expiring");
     window.setTimeout(() => marker.remove(), 650);
   }
 }
 
-function showHoverPreview(event: PrairieDogEvent): void {
+function showHoverPreview(event: PrairieDogEvent, marker: SVGGElement): void {
   const imageUrl = getPreviewImageUrl(event);
+
+  selectedMarker?.classList.remove("marker-selected");
+  selectedMarker = marker;
+  selectedMarker.classList.add("marker-selected");
 
   if (imageUrl) {
     hoverPreviewImage.src = imageUrl;
@@ -332,11 +379,14 @@ function showHoverPreview(event: PrairieDogEvent): void {
   hoverPreviewPlace.textContent = event.location?.place_guess ?? event.source;
   hoverPreviewTime.textContent = formatObservationTime(event);
   hoverPreviewTime.dateTime = event.source_created_at ?? event.detected_at;
+  hoverPreviewSource.href = event.source_url;
   hoverPreview.removeAttribute("aria-hidden");
   hoverPreview.classList.add("hover-preview-visible");
 }
 
 function hideHoverPreview(): void {
+  selectedMarker?.classList.remove("marker-selected");
+  selectedMarker = undefined;
   hoverPreview.setAttribute("aria-hidden", "true");
   hoverPreview.classList.remove("hover-preview-visible");
 }
@@ -364,6 +414,10 @@ function updateSyncState(state: SyncState): void {
 
 function getCurrentCadenceMs(): number {
   return syncCadenceMs;
+}
+
+function isTouchMode(): boolean {
+  return touchQuery.matches;
 }
 
 function apiUrl(pathname: "/events" | "/status"): string {

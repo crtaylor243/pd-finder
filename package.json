@@ -13,9 +13,13 @@
     "dev": "concurrently -n api,viewer -c green,cyan \"tsx watch src/server.ts\" \"vite --host 127.0.0.1\"",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
+    "worker:dev": "wrangler dev",
+    "worker:deploy": "wrangler deploy",
+    "worker:typecheck": "tsc -p worker/tsconfig.json",
     "test": "tsx --test tests/*.test.ts"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260514.1",
     "@types/d3-geo": "^3.1.0",
     "@types/geojson": "^7946.0.16",
     "@types/node": "^20.19.24",
@@ -26,6 +30,7 @@
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "us-atlas": "^3.0.1",
-    "vite": "^5.4.21"
+    "vite": "^5.4.21",
+    "wrangler": "^4.91.0"
   }
 }

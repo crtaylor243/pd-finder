@@ -36,6 +36,26 @@ npm run dev
 
 Open the app at `http://127.0.0.1:5173`. Vite hot-reloads frontend changes and proxies API/SSE requests to the backend on `8787`.
 
+Run the Cloudflare realtime Worker locally:
+
+```sh
+npm run worker:dev
+```
+
+Deploy the realtime Worker:
+
+```sh
+npm run worker:deploy
+```
+
+After the Worker is deployed, set the Vercel frontend environment variable to the Worker WebSocket endpoint:
+
+```sh
+VITE_REALTIME_URL=wss://prairie-dog-finder-realtime.<your-workers-subdomain>.workers.dev/live
+```
+
+When `VITE_REALTIME_URL` is set, the frontend connects to the Cloudflare Worker WebSocket for live updates and uses the Worker `/events`, `/status`, and `/sync` endpoints as fallback API calls.
+
 Build and serve the production-style local viewer/API from one process:
 
 ```sh
@@ -58,6 +78,7 @@ Run local checks:
 
 ```sh
 npm run typecheck
+npm run worker:typecheck
 npm test
 ```
 

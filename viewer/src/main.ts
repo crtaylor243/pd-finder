@@ -69,6 +69,8 @@ const projection = geoAlbersUsa().translate([480, 305]).scale(1180);
 const path = geoPath(projection);
 const plotted = new Map<string, SVGGElement>();
 const plottedOrder: string[] = [];
+const remoteRealtimeUrl = getRemoteRealtimeUrl();
+const remoteApiBase = remoteRealtimeUrl ? toHttpBase(remoteRealtimeUrl) : undefined;
 let maxVisibleEvents = 25;
 let syncCadenceMs = 10_000;
 let fallbackSyncInterval: number | undefined;
@@ -78,7 +80,7 @@ void loadInitialEvents();
 connectEventStream();
 
 async function loadInitialEvents(): Promise<void> {
-  const [statusResponse, eventsResponse] = await Promise.all([fetch("/api/status"), fetch("/api/events")]);
+  const [statusResponse, eventsResponse] = await Promise.all([fetch(apiUrl("/status")), fetch(apiUrl("/events"))]);
   const status = (await statusResponse.json()) as SyncState;
   const events = (await eventsResponse.json()) as PrairieDogEvent[];
   maxVisibleEvents = status.max_visible_events;
@@ -87,6 +89,11 @@ async function loadInitialEvents(): Promise<void> {
 }
 
 function connectEventStream(): void {
+  if (remoteRealtimeUrl) {
+    connectWorkerWebSocket(remoteRealtimeUrl);
+    return;
+  }
+
   const source = new EventSource("/events");
 
   source.addEventListener("open", () => {
@@ -109,6 +116,47 @@ function connectEventStream(): void {
   source.addEventListener("error", () => {
     setStatus("Sync loop", "status-waiting");
     source.close();
+    startFallbackSync();
+  });
+}
+
+function connectWorkerWebSocket(url: string): void {
+  const socket = new WebSocket(url);
+
+  socket.addEventListener("open", () => {
+    setStatus("Live", "status-live");
+    stopFallbackSync();
+  });
+
+  socket.addEventListener("message", (message) => {
+    const payload = JSON.parse(message.data as string) as
+      | {
+          type: "prairie-dog";
+          event: PrairieDogEvent;
+        }
+      | {
+          type: "sync-state";
+          state: SyncState;
+        };
+
+    if (payload.type === "prairie-dog") {
+      plotEvent(payload.event, true);
+      return;
+    }
+
+    maxVisibleEvents = payload.state.max_visible_events;
+    updateSyncState(payload.state);
+    enforceVisibleLimit();
+  });
+
+  socket.addEventListener("close", () => {
+    setStatus("Live polling", "status-waiting");
+    startFallbackSync();
+  });
+
+  socket.addEventListener("error", () => {
+    setStatus("Live polling", "status-waiting");
+    socket.close();
     startFallbackSync();
   });
 }
@@ -146,7 +194,7 @@ async function syncOnce(): Promise<void> {
   });
 
   try {
-    const response = await fetch("/api/sync");
+    const response = await fetch(syncUrl(), { method: remoteApiBase ? "POST" : "GET" });
     const payload = (await response.json()) as { events: PrairieDogEvent[]; status: SyncState };
     maxVisibleEvents = payload.status.max_visible_events;
     payload.events.forEach((event) => plotEvent(event, true));
@@ -325,6 +373,28 @@ function updateSyncState(state: SyncState): void {
 
 function getCurrentCadenceMs(): number {
   return syncCadenceMs;
+}
+
+function apiUrl(pathname: "/events" | "/status"): string {
+  return remoteApiBase ? `${remoteApiBase}${pathname}` : `/api${pathname}`;
+}
+
+function syncUrl(): string {
+  return remoteApiBase ? `${remoteApiBase}/sync` : "/api/sync";
+}
+
+function getRemoteRealtimeUrl(): string | undefined {
+  const url = import.meta.env.VITE_REALTIME_URL?.trim();
+  return url ? url : undefined;
+}
+
+function toHttpBase(webSocketUrl: string): string {
+  const url = new URL(webSocketUrl);
+  url.protocol = url.protocol === "wss:" ? "https:" : "http:";
+  url.pathname = url.pathname.replace(/\/live\/?$/, "");
+  url.search = "";
+  url.hash = "";
+  return url.toString().replace(/\/$/, "");
 }
 
 function requireElement<T extends Element>(selector: string): T {

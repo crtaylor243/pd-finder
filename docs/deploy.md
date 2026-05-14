@@ -2,14 +2,14 @@
 
 ## Summary
 
-Deploy `pd-finder` from GitHub to Vercel as a Vite frontend backed by Vercel Functions. The current local app uses one long-running Node HTTP server with `setInterval`, SSE clients, and JSONL writes; that needs a small production reshape because Vercel Functions are invoked per request, scale down when idle, and should not rely on local filesystem persistence.
+Deploy `pd-finder` from GitHub to Vercel as a Vite frontend backed by Vercel Functions, with production realtime handled by Cloudflare Workers and Durable Objects. The current local app uses one long-running Node HTTP server with `setInterval`, SSE clients, and JSONL writes; Vercel Functions are invoked per request, scale down when idle, and should not rely on local filesystem persistence.
 
 Recommended deployment path:
 
 1. Keep Vercel as the frontend host and serverless API surface.
-2. Replace local JSONL persistence with Vercel KV, Upstash Redis, Neon, or another small hosted store.
-3. Replace the always-running 10-second server loop with either client-triggered sync or Vercel Cron.
-4. Keep the browser map mostly unchanged, but point it at Vercel API routes instead of the local Node server.
+2. Use Cloudflare Workers + Durable Objects for browser WebSocket connections, centralized iNaturalist polling, dedupe, latest-observation storage, and broadcast.
+3. Keep the browser map mostly unchanged, but point production realtime at the Cloudflare Worker through `VITE_REALTIME_URL`.
+4. Keep Vercel API routes as a simple fallback/API surface.
 
 ## Current App Constraints
 
@@ -48,22 +48,23 @@ Recommended deployment path:
 
 ## Realtime Strategy
 
-Vercel can stream function responses, but the current SSE model assumes one long-running process that owns polling and keeps browser clients in memory. For the first Vercel deployment, avoid long-lived SSE as the production dependency.
+Vercel can stream function responses, but the current SSE model assumes one long-running process that owns polling and keeps browser clients in memory. Production realtime should use Cloudflare Workers and Durable Objects instead of Vercel serverless functions.
 
 Recommended v1:
 
-- Browser calls `GET /api/events` on load.
-- Browser calls `GET /api/sync` on a short interval, e.g. 10-30 seconds, or when the user presses `Sync now`.
-- API performs one iNaturalist sync per request, writes new events to remote storage, and returns new events.
-- Frontend animates any newly returned events exactly like today.
+- Browser connects to `VITE_REALTIME_URL`, e.g. `wss://prairie-dog-finder-realtime.<subdomain>.workers.dev/live`.
+- Cloudflare Cron runs `* * * * *` once per minute.
+- The Worker polls iNaturalist centrally, not per browser.
+- The Durable Object dedupes observation IDs, stores the latest capped event list, tracks sync state, and broadcasts new observations over WebSocket.
+- The frontend animates WebSocket events exactly like local SSE events.
 
 Optional v2:
 
-- Add Vercel Cron to run `/api/sync` on a schedule.
-- Use a hosted realtime layer such as Ably, Pusher, Supabase Realtime, or Upstash Redis pub/sub if true push updates become important.
-- Keep iNaturalist polling centralized so many browser users do not multiply API requests.
+- Add longer replay/history storage through D1, R2, Supabase, or Postgres.
+- Add a custom domain for the Worker endpoint.
+- Add a write-protected admin/manual sync endpoint if public triggering becomes a concern.
 
-Important limitation: Vercel Cron uses cron expressions, so it is not a good fit for every-10-second scheduling. It is better for minute-level background sync. For 10-second updates on Vercel, either accept client-triggered sync, use a separate always-on worker elsewhere, or add a hosted realtime/queue service.
+Important limitation: iNaturalist does not push new observations to this app. “Live” means the backend polls once per minute and pushes any newly discovered observations immediately to connected browsers.
 
 ## Implementation Steps
 
@@ -115,22 +116,29 @@ Important limitation: Vercel Cron uses cron expressions, so it is not a good fit
    - Confirm frontend renders map, hover previews, marker cap, fade behavior, and source links.
    - Confirm no runtime writes to `data/` are required in production.
 
+8. Deploy Cloudflare realtime.
+   - Run `npm run worker:deploy`.
+   - Set `VITE_REALTIME_URL` in Vercel to the Worker `/live` WebSocket URL.
+   - Redeploy Vercel.
+   - Confirm the browser status shows `Live` and receives WebSocket messages.
+
 ## Acceptance Criteria
 
 - Vercel deploy succeeds from GitHub.
 - Static frontend loads from the Vercel URL.
 - iNaturalist sync works without an API key.
-- Events persist across function invocations using remote storage.
+- Events persist in the Cloudflare Durable Object across invocations.
 - Frontend shows newest observations, hover previews, and max-visible marker behavior.
+- Production frontend can connect to the Worker WebSocket when `VITE_REALTIME_URL` is configured.
 - No secrets are committed to Git.
-- Vercel env vars hold all storage credentials.
+- Vercel env vars hold the Worker WebSocket URL and any future storage credentials.
 
 ## Risks And Decisions
 
-- True server-push realtime is not the first Vercel target. Use request-based sync first.
-- 10-second sync from every browser can multiply iNaturalist traffic. For public release, centralize sync with storage and use a slower client refresh, e.g. 30-60 seconds.
+- True server-push realtime should live outside Vercel Functions. Cloudflare Workers + Durable Objects are the current target.
+- Browser-driven sync can multiply iNaturalist traffic. Keep iNaturalist polling centralized in Cloudflare.
 - Local JSONL remains useful for development but must not be used as production persistence.
-- If the app needs actual always-on 10-second backend polling, deploy the backend to Fly.io, Render, Railway, or another always-on Node host, and use Vercel only for the frontend.
+- If the app needs actual always-on sub-minute backend polling, revisit provider cost and rate-limit risk before lowering the Cloudflare cron cadence.
 
 ## References
 
@@ -140,3 +148,6 @@ Important limitation: Vercel Cron uses cron expressions, so it is not a good fit
 - Vercel Cron Jobs: https://vercel.com/docs/cron-jobs
 - Vercel Functions limits: https://vercel.com/docs/functions/limitations
 - Vite static deploy guidance: https://vite.dev/guide/static-deploy
+- Cloudflare Workers pricing: https://developers.cloudflare.com/workers/platform/pricing/
+- Cloudflare Cron Triggers: https://developers.cloudflare.com/workers/configuration/cron-triggers/
+- Cloudflare Durable Objects WebSockets: https://developers.cloudflare.com/durable-objects/best-practices/websockets/

@@ -1,0 +1,18 @@
+name = "prairie-dog-finder-realtime"
+main = "worker/src/index.ts"
+compatibility_date = "2025-12-01"
+
+[vars]
+MAX_VISIBLE_EVENTS = "25"
+POLL_INTERVAL_MS = "60000"
+
+[[durable_objects.bindings]]
+name = "PD_ROOM"
+class_name = "PrairieDogRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["PrairieDogRoom"]
+
+[triggers]
+crons = ["* * * * *"]

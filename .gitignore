@@ -9,6 +9,7 @@ data/
 .env
 .env.*
 !.env.example
+.dev.vars
 *.pem
 *.key
 *.crt
@@ -23,3 +24,4 @@ coverage/
 *.swp
 .vercel
 .playwright-mcp/
+.wrangler/

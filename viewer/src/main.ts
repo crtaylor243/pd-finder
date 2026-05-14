@@ -67,27 +67,38 @@ const hoverPreviewPlace = requireElement<HTMLSpanElement>("#hoverPreviewPlace");
 const hoverPreviewTime = requireElement<HTMLTimeElement>("#hoverPreviewTime");
 const hoverPreviewSource = requireElement<HTMLAnchorElement>("#hoverPreviewSource");
 const hoverPreviewClose = requireElement<HTMLButtonElement>("#hoverPreviewClose");
+const observationRail = requireElement<HTMLDivElement>("#observationRail");
+const observationList = requireElement<HTMLDivElement>("#observationList");
+
+type PlottedObservation = {
+  event: PrairieDogEvent;
+  marker: SVGGElement;
+  card: HTMLElement;
+};
 
 const projection = geoAlbersUsa().translate([480, 305]).scale(1180);
 const path = geoPath(projection);
-const plotted = new Map<string, SVGGElement>();
+const plotted = new Map<string, PlottedObservation>();
 const plottedOrder: string[] = [];
 const remoteRealtimeUrl = getRemoteRealtimeUrl();
 const remoteApiBase = remoteRealtimeUrl ? toHttpBase(remoteRealtimeUrl) : undefined;
 const touchQuery = window.matchMedia("(hover: none), (pointer: coarse)");
+const mobileLayoutQuery = window.matchMedia("(max-width: 880px)");
 let maxVisibleEvents = 25;
 let syncCadenceMs = 10_000;
 let fallbackSyncInterval: number | undefined;
-let selectedMarker: SVGGElement | undefined;
+let selectedObservationId: string | undefined;
+let railScrollTimer: number | undefined;
 
 renderMap();
 void loadInitialEvents();
 connectEventStream();
 
 hoverPreviewClose.addEventListener("click", hideHoverPreview);
+observationRail.addEventListener("scroll", handleRailScroll, { passive: true });
 svg.addEventListener("click", () => {
   if (isTouchMode()) {
-    hideHoverPreview();
+    selectFirstObservation();
   }
 });
 
@@ -97,7 +108,10 @@ async function loadInitialEvents(): Promise<void> {
   const events = (await eventsResponse.json()) as PrairieDogEvent[];
   maxVisibleEvents = status.max_visible_events;
   updateSyncState(status);
-  events.filter((event) => event.location).slice(-maxVisibleEvents).forEach((event) => plotEvent(event, false));
+  events.filter((event) => event.location).slice(-maxVisibleEvents).reverse().forEach((event) => plotEvent(event, false));
+  if (isTouchMode()) {
+    selectFirstObservation();
+  }
 }
 
 function connectEventStream(): void {
@@ -290,7 +304,7 @@ function plotEvent(event: PrairieDogEvent, animate: boolean): void {
 
   marker.addEventListener("mouseenter", () => {
     if (!isTouchMode()) {
-      showHoverPreview(event, marker);
+      showDesktopPreview(event);
     }
   });
   marker.addEventListener("mouseleave", () => {
@@ -298,7 +312,13 @@ function plotEvent(event: PrairieDogEvent, animate: boolean): void {
       hideHoverPreview();
     }
   });
-  marker.addEventListener("focus", () => showHoverPreview(event, marker));
+  marker.addEventListener("focus", () => {
+    if (!isTouchMode()) {
+      showDesktopPreview(event);
+    } else {
+      selectObservation(event.event_id, { scrollCard: true });
+    }
+  });
   marker.addEventListener("blur", () => {
     if (!isTouchMode()) {
       hideHoverPreview();
@@ -308,7 +328,7 @@ function plotEvent(event: PrairieDogEvent, animate: boolean): void {
     mouseEvent.stopPropagation();
 
     if (isTouchMode()) {
-      showHoverPreview(event, marker);
+      selectObservation(event.event_id, { scrollCard: true });
       return;
     }
 
@@ -317,7 +337,11 @@ function plotEvent(event: PrairieDogEvent, animate: boolean): void {
   marker.addEventListener("keydown", (keyboardEvent) => {
     if (keyboardEvent.key === "Enter" || keyboardEvent.key === " ") {
       keyboardEvent.preventDefault();
-      showHoverPreview(event, marker);
+      if (isTouchMode()) {
+        selectObservation(event.event_id, { scrollCard: true });
+      } else {
+        showDesktopPreview(event);
+      }
     }
 
     if (keyboardEvent.key === "Escape") {
@@ -325,10 +349,16 @@ function plotEvent(event: PrairieDogEvent, animate: boolean): void {
     }
   });
 
+  const card = createObservationCard(event);
   svg.append(marker);
-  plotted.set(event.event_id, marker);
-  plottedOrder.push(event.event_id);
+  observationList.prepend(card);
+  plotted.set(event.event_id, { event, marker, card });
+  plottedOrder.unshift(event.event_id);
   enforceVisibleLimit();
+
+  if (isTouchMode()) {
+    selectObservation(event.event_id, { scrollCard: true });
+  }
 
   if (animate) {
     window.setTimeout(() => {
@@ -339,33 +369,36 @@ function plotEvent(event: PrairieDogEvent, animate: boolean): void {
 
 function enforceVisibleLimit(): void {
   while (plottedOrder.length > maxVisibleEvents) {
-    const eventId = plottedOrder.shift();
+    const eventId = plottedOrder.pop();
     if (!eventId) {
       continue;
     }
 
-    const marker = plotted.get(eventId);
+    const observation = plotted.get(eventId);
     plotted.delete(eventId);
 
-    if (!marker) {
+    if (!observation) {
       continue;
     }
 
-    if (selectedMarker === marker) {
-      hideHoverPreview();
+    if (selectedObservationId === eventId) {
+      selectedObservationId = undefined;
     }
 
-    marker.classList.add("marker-expiring");
-    window.setTimeout(() => marker.remove(), 650);
+    observation.card.remove();
+    observation.marker.classList.add("marker-expiring");
+    window.setTimeout(() => observation.marker.remove(), 650);
+  }
+
+  if (isTouchMode() && !selectedObservationId) {
+    selectFirstObservation();
   }
 }
 
-function showHoverPreview(event: PrairieDogEvent, marker: SVGGElement): void {
+function showDesktopPreview(event: PrairieDogEvent): void {
   const imageUrl = getPreviewImageUrl(event);
 
-  selectedMarker?.classList.remove("marker-selected");
-  selectedMarker = marker;
-  selectedMarker.classList.add("marker-selected");
+  selectObservation(event.event_id, { scrollCard: false });
 
   if (imageUrl) {
     hoverPreviewImage.src = imageUrl;
@@ -385,10 +418,136 @@ function showHoverPreview(event: PrairieDogEvent, marker: SVGGElement): void {
 }
 
 function hideHoverPreview(): void {
-  selectedMarker?.classList.remove("marker-selected");
-  selectedMarker = undefined;
+  if (!isTouchMode()) {
+    clearSelectedObservation();
+  }
+
   hoverPreview.setAttribute("aria-hidden", "true");
   hoverPreview.classList.remove("hover-preview-visible");
+}
+
+function createObservationCard(event: PrairieDogEvent): HTMLElement {
+  const card = document.createElement("article");
+  card.className = "observation-card";
+  card.dataset.eventId = event.event_id;
+  card.setAttribute("tabindex", "0");
+  card.setAttribute("aria-label", event.display.title);
+
+  const imageUrl = getPreviewImageUrl(event);
+  if (imageUrl) {
+    const image = document.createElement("img");
+    image.src = imageUrl;
+    image.alt = "";
+    card.append(image);
+  }
+
+  const body = document.createElement("div");
+  body.className = "observation-card-body";
+
+  const title = document.createElement("strong");
+  title.textContent = event.display.title;
+  body.append(title);
+
+  const place = document.createElement("span");
+  place.textContent = event.location?.place_guess ?? event.source;
+  body.append(place);
+
+  const time = document.createElement("time");
+  time.textContent = formatObservationTime(event);
+  time.dateTime = event.source_created_at ?? event.detected_at;
+  body.append(time);
+
+  const source = document.createElement("a");
+  source.href = event.source_url;
+  source.target = "_blank";
+  source.rel = "noreferrer";
+  source.textContent = "Open observation";
+  source.addEventListener("click", (mouseEvent) => mouseEvent.stopPropagation());
+  body.append(source);
+
+  card.append(body);
+  card.addEventListener("click", () => selectObservation(event.event_id, { scrollCard: true }));
+  card.addEventListener("focus", () => selectObservation(event.event_id, { scrollCard: false }));
+
+  return card;
+}
+
+function selectFirstObservation(): void {
+  const firstEventId = plottedOrder.at(0);
+  if (firstEventId) {
+    selectObservation(firstEventId, { scrollCard: true });
+  }
+}
+
+function selectObservation(eventId: string, options: { scrollCard: boolean }): void {
+  const observation = plotted.get(eventId);
+  if (!observation) {
+    return;
+  }
+
+  clearSelectedObservation();
+  selectedObservationId = eventId;
+  observation.marker.classList.add("marker-selected");
+  observation.card.classList.add("observation-card-selected");
+  observation.card.setAttribute("aria-current", "true");
+
+  if (options.scrollCard && isTouchMode()) {
+    observation.card.scrollIntoView({ block: "start", behavior: "smooth" });
+  }
+}
+
+function clearSelectedObservation(): void {
+  if (!selectedObservationId) {
+    return;
+  }
+
+  const previous = plotted.get(selectedObservationId);
+  previous?.marker.classList.remove("marker-selected");
+  previous?.card.classList.remove("observation-card-selected");
+  previous?.card.removeAttribute("aria-current");
+  selectedObservationId = undefined;
+}
+
+function handleRailScroll(): void {
+  if (!isTouchMode()) {
+    return;
+  }
+
+  if (railScrollTimer != null) {
+    window.clearTimeout(railScrollTimer);
+  }
+
+  railScrollTimer = window.setTimeout(() => {
+    const closestEventId = getClosestRailEventId();
+    if (closestEventId) {
+      selectObservation(closestEventId, { scrollCard: false });
+    }
+  }, 80);
+}
+
+function getClosestRailEventId(): string | undefined {
+  const railBounds = observationRail.getBoundingClientRect();
+  const targetY = railBounds.top + railBounds.height * 0.38;
+  let closestEventId: string | undefined;
+  let closestDistance = Number.POSITIVE_INFINITY;
+
+  for (const eventId of plottedOrder) {
+    const card = plotted.get(eventId)?.card;
+    if (!card) {
+      continue;
+    }
+
+    const cardBounds = card.getBoundingClientRect();
+    const cardCenter = cardBounds.top + cardBounds.height / 2;
+    const distance = Math.abs(cardCenter - targetY);
+
+    if (distance < closestDistance) {
+      closestDistance = distance;
+      closestEventId = eventId;
+    }
+  }
+
+  return closestEventId;
 }
 
 function getPreviewImageUrl(event: PrairieDogEvent): string | undefined {
@@ -417,7 +576,7 @@ function getCurrentCadenceMs(): number {
 }
 
 function isTouchMode(): boolean {
-  return touchQuery.matches;
+  return touchQuery.matches || mobileLayoutQuery.matches;
 }
 
 function apiUrl(pathname: "/events" | "/status"): string {

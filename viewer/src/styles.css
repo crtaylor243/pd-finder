@@ -430,8 +430,8 @@ h2 {
 
   .observation-card {
     display: grid;
-    grid-template-columns: 6rem minmax(0, 1fr);
-    gap: 0.76rem;
+    grid-template-rows: minmax(0, 58%) minmax(0, 42%);
+    gap: 0;
     min-height: 0;
     height: 100%;
     scroll-snap-align: start;
@@ -440,6 +440,7 @@ h2 {
     border-radius: 0;
     color: #e8ffe9;
     background: rgba(7, 17, 11, 0.9);
+    overflow: hidden;
     transition:
       border-color 160ms ease,
       background 160ms ease;
@@ -454,11 +455,30 @@ h2 {
     background: rgba(10, 29, 17, 0.96);
   }
 
+  .observation-card-media {
+    display: grid;
+    min-height: 0;
+    padding: 0.85rem 0.85rem 0.45rem;
+    background:
+      linear-gradient(rgba(57, 255, 118, 0.12), rgba(57, 255, 118, 0.03)),
+      rgba(0, 0, 0, 0.18);
+    place-items: center;
+  }
+
+  .observation-card-selected .observation-card-media {
+    box-shadow: inset 0 0 0 1px rgba(57, 255, 118, 0.5);
+  }
+
   .observation-card img {
-    width: 6rem;
-    height: 100%;
-    border-radius: 0;
-    object-fit: cover;
+    display: block;
+    width: auto;
+    max-width: 100%;
+    height: auto;
+    max-height: 100%;
+    border: 1px solid rgba(177, 246, 190, 0.22);
+    border-radius: 8px;
+    object-fit: contain;
+    box-shadow: 0 14px 28px rgba(0, 0, 0, 0.3);
   }
 
   .observation-card-body {
@@ -466,15 +486,11 @@ h2 {
     align-content: center;
     gap: 0.28rem;
     min-width: 0;
-    padding: 0.95rem 0.95rem 1.1rem 0;
+    padding: 0.78rem 1rem calc(1rem + env(safe-area-inset-bottom));
   }
 
-  .observation-card:not(:has(img)) {
-    grid-template-columns: 1fr;
-  }
-
-  .observation-card:not(:has(img)) .observation-card-body {
-    padding-left: 0.95rem;
+  .observation-card:not(:has(.observation-card-media)) {
+    grid-template-rows: 1fr;
   }
 
   .observation-card strong,

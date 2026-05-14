@@ -82,7 +82,6 @@ const plotted = new Map<string, PlottedObservation>();
 const plottedOrder: string[] = [];
 const remoteRealtimeUrl = getRemoteRealtimeUrl();
 const remoteApiBase = remoteRealtimeUrl ? toHttpBase(remoteRealtimeUrl) : undefined;
-const touchQuery = window.matchMedia("(hover: none), (pointer: coarse)");
 const mobileLayoutQuery = window.matchMedia("(max-width: 880px)");
 let maxVisibleEvents = 25;
 let syncCadenceMs = 10_000;
@@ -97,7 +96,7 @@ connectEventStream();
 hoverPreviewClose.addEventListener("click", hideHoverPreview);
 observationRail.addEventListener("scroll", handleRailScroll, { passive: true });
 svg.addEventListener("click", () => {
-  if (isTouchMode()) {
+  if (isMobileLayout()) {
     selectFirstObservation();
   }
 });
@@ -109,7 +108,7 @@ async function loadInitialEvents(): Promise<void> {
   maxVisibleEvents = status.max_visible_events;
   updateSyncState(status);
   events.filter((event) => event.location).slice(-maxVisibleEvents).reverse().forEach((event) => plotEvent(event, false));
-  if (isTouchMode()) {
+  if (isMobileLayout()) {
     selectFirstObservation();
   }
 }
@@ -303,31 +302,31 @@ function plotEvent(event: PrairieDogEvent, animate: boolean): void {
   marker.append(dot);
 
   marker.addEventListener("mouseenter", () => {
-    if (!isTouchMode()) {
+    if (!isMobileLayout()) {
       showDesktopPreview(event);
     }
   });
   marker.addEventListener("mouseleave", () => {
-    if (!isTouchMode()) {
+    if (!isMobileLayout()) {
       hideHoverPreview();
     }
   });
   marker.addEventListener("focus", () => {
-    if (!isTouchMode()) {
+    if (!isMobileLayout()) {
       showDesktopPreview(event);
     } else {
       selectObservation(event.event_id, { scrollCard: true });
     }
   });
   marker.addEventListener("blur", () => {
-    if (!isTouchMode()) {
+    if (!isMobileLayout()) {
       hideHoverPreview();
     }
   });
   marker.addEventListener("click", (mouseEvent) => {
     mouseEvent.stopPropagation();
 
-    if (isTouchMode()) {
+    if (isMobileLayout()) {
       selectObservation(event.event_id, { scrollCard: true });
       return;
     }
@@ -337,7 +336,7 @@ function plotEvent(event: PrairieDogEvent, animate: boolean): void {
   marker.addEventListener("keydown", (keyboardEvent) => {
     if (keyboardEvent.key === "Enter" || keyboardEvent.key === " ") {
       keyboardEvent.preventDefault();
-      if (isTouchMode()) {
+      if (isMobileLayout()) {
         selectObservation(event.event_id, { scrollCard: true });
       } else {
         showDesktopPreview(event);
@@ -356,7 +355,7 @@ function plotEvent(event: PrairieDogEvent, animate: boolean): void {
   plottedOrder.unshift(event.event_id);
   enforceVisibleLimit();
 
-  if (isTouchMode()) {
+  if (isMobileLayout()) {
     selectObservation(event.event_id, { scrollCard: true });
   }
 
@@ -390,7 +389,7 @@ function enforceVisibleLimit(): void {
     window.setTimeout(() => observation.marker.remove(), 650);
   }
 
-  if (isTouchMode() && !selectedObservationId) {
+  if (isMobileLayout() && !selectedObservationId) {
     selectFirstObservation();
   }
 }
@@ -418,7 +417,7 @@ function showDesktopPreview(event: PrairieDogEvent): void {
 }
 
 function hideHoverPreview(): void {
-  if (!isTouchMode()) {
+  if (!isMobileLayout()) {
     clearSelectedObservation();
   }
 
@@ -435,10 +434,13 @@ function createObservationCard(event: PrairieDogEvent): HTMLElement {
 
   const imageUrl = getPreviewImageUrl(event);
   if (imageUrl) {
+    const media = document.createElement("div");
+    media.className = "observation-card-media";
     const image = document.createElement("img");
     image.src = imageUrl;
     image.alt = "";
-    card.append(image);
+    media.append(image);
+    card.append(media);
   }
 
   const body = document.createElement("div");
@@ -491,7 +493,7 @@ function selectObservation(eventId: string, options: { scrollCard: boolean }): v
   observation.card.classList.add("observation-card-selected");
   observation.card.setAttribute("aria-current", "true");
 
-  if (options.scrollCard && isTouchMode()) {
+  if (options.scrollCard && isMobileLayout()) {
     observation.card.scrollIntoView({ block: "start", behavior: "smooth" });
   }
 }
@@ -509,7 +511,7 @@ function clearSelectedObservation(): void {
 }
 
 function handleRailScroll(): void {
-  if (!isTouchMode()) {
+  if (!isMobileLayout()) {
     return;
   }
 
@@ -575,8 +577,8 @@ function getCurrentCadenceMs(): number {
   return syncCadenceMs;
 }
 
-function isTouchMode(): boolean {
-  return touchQuery.matches || mobileLayoutQuery.matches;
+function isMobileLayout(): boolean {
+  return mobileLayoutQuery.matches;
 }
 
 function apiUrl(pathname: "/events" | "/status"): string {

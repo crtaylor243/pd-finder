@@ -80,7 +80,7 @@ The viewer is a small browser app in `viewer/src/main.ts`.
 On load it:
 
 1. renders a U.S. SVG map from `us-atlas` TopoJSON using `topojson-client` and `d3-geo`;
-2. fetches `/api/events` and plots any events with usable coordinates;
+2. fetches `/api/events` and plots any events with usable U.S. coordinates;
 3. opens `new EventSource("/events")` for live updates;
 4. renders backend iNaturalist sync status from `sync-state` messages;
 5. wires the `Sync now` button to trigger the backend sync endpoint through `GET /api/poll`.
@@ -103,7 +103,7 @@ Environment variables read by the server/CLI:
 Feed settings currently live in code:
 
 - iNaturalist `perPage`: `20`.
-- iNaturalist `placeId`: `1`.
+- iNaturalist `placeId`: `1` for United States.
 - iNaturalist `taxonId`: `46175`.
 
 No API key is required for the current iNaturalist MVP.

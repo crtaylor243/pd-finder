@@ -20,25 +20,6 @@ body {
     linear-gradient(130deg, #07110b 0%, #0c1510 54%, #11170d 100%);
 }
 
-button {
-  border: 1px solid rgba(142, 245, 160, 0.36);
-  border-radius: 8px;
-  padding: 0.7rem 0.95rem;
-  color: #e8ffe9;
-  background: rgba(15, 54, 27, 0.92);
-  cursor: pointer;
-  font: inherit;
-}
-
-button:hover {
-  background: rgba(22, 82, 41, 0.95);
-}
-
-button:disabled {
-  cursor: wait;
-  opacity: 0.72;
-}
-
 #app {
   min-height: 100vh;
 }
@@ -51,22 +32,13 @@ button:disabled {
 
 .topbar {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
   padding: 1.15rem 1.35rem 0.9rem;
   border-bottom: 1px solid rgba(178, 242, 190, 0.12);
   background: rgba(5, 12, 8, 0.74);
   backdrop-filter: blur(14px);
-}
-
-.eyebrow {
-  margin: 0 0 0.2rem;
-  color: #8befa2;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0;
-  text-transform: uppercase;
 }
 
 h1,
@@ -88,16 +60,14 @@ h2 {
 .status-cluster {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  flex-wrap: wrap;
   justify-content: flex-end;
+  padding-top: 0.12rem;
 }
 
 .status {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
-  min-width: 112px;
   color: #c8ffd0;
   font-size: 0.88rem;
   white-space: nowrap;
@@ -119,23 +89,6 @@ h2 {
 
 .status-waiting::before {
   background: #ffe17b;
-}
-
-.sync-status {
-  max-width: min(360px, 42vw);
-  overflow: hidden;
-  color: #a7c8ae;
-  font-size: 0.84rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sync-status-active {
-  color: #8befa2;
-}
-
-.sync-status-error {
-  color: #ffb4a8;
 }
 
 .map-shell {
@@ -325,7 +278,8 @@ h2 {
 }
 
 .hover-preview-meta strong,
-.hover-preview-meta span {
+.hover-preview-meta span,
+.hover-preview-meta time {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -340,6 +294,11 @@ h2 {
   font-size: 0.78rem;
 }
 
+.hover-preview-meta time {
+  color: #c6e8cc;
+  font-size: 0.78rem;
+}
+
 @media (max-width: 880px) {
   .workspace {
     min-height: 100vh;
@@ -347,12 +306,11 @@ h2 {
 
   .topbar {
     align-items: flex-start;
-    flex-direction: column;
   }
 
   .status-cluster {
-    width: 100%;
-    justify-content: space-between;
+    flex: 0 0 auto;
+    justify-content: flex-end;
   }
 
   #map {

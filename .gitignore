@@ -21,3 +21,5 @@ coverage/
 .idea/
 .vscode/
 *.swp
+.vercel
+.playwright-mcp/

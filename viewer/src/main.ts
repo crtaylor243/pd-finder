@@ -58,44 +58,31 @@ type SyncState = {
 
 const svg = requireElement<SVGSVGElement>("#map");
 const connectionStatus = requireElement<HTMLSpanElement>("#connectionStatus");
-const syncStatus = requireElement<HTMLSpanElement>("#syncStatus");
-const pollNow = requireElement<HTMLButtonElement>("#pollNow");
 const emptyState = requireElement<HTMLDivElement>("#emptyState");
 const hoverPreview = requireElement<HTMLDivElement>("#hoverPreview");
 const hoverPreviewImage = requireElement<HTMLImageElement>("#hoverPreviewImage");
 const hoverPreviewTitle = requireElement<HTMLElement>("#hoverPreviewTitle");
 const hoverPreviewPlace = requireElement<HTMLSpanElement>("#hoverPreviewPlace");
+const hoverPreviewTime = requireElement<HTMLTimeElement>("#hoverPreviewTime");
 
 const projection = geoAlbersUsa().translate([480, 305]).scale(1180);
 const path = geoPath(projection);
 const plotted = new Map<string, SVGGElement>();
 const plottedOrder: string[] = [];
 let maxVisibleEvents = 25;
+let syncCadenceMs = 10_000;
+let fallbackSyncInterval: number | undefined;
 
 renderMap();
 void loadInitialEvents();
 connectEventStream();
-
-pollNow.addEventListener("click", async () => {
-  pollNow.disabled = true;
-  pollNow.textContent = "Syncing...";
-
-  try {
-    const response = await fetch("/api/poll");
-    const payload = (await response.json()) as { events: PrairieDogEvent[] };
-    payload.events.forEach((event) => plotEvent(event, true));
-  } finally {
-    pollNow.disabled = false;
-    pollNow.textContent = "Sync now";
-  }
-});
 
 async function loadInitialEvents(): Promise<void> {
   const [statusResponse, eventsResponse] = await Promise.all([fetch("/api/status"), fetch("/api/events")]);
   const status = (await statusResponse.json()) as SyncState;
   const events = (await eventsResponse.json()) as PrairieDogEvent[];
   maxVisibleEvents = status.max_visible_events;
-  renderSyncState(status);
+  updateSyncState(status);
   events.filter((event) => event.location).slice(-maxVisibleEvents).forEach((event) => plotEvent(event, false));
 }
 
@@ -104,6 +91,7 @@ function connectEventStream(): void {
 
   source.addEventListener("open", () => {
     setStatus("Live", "status-live");
+    stopFallbackSync();
   });
 
   source.addEventListener("prairie-dog", (message) => {
@@ -114,13 +102,67 @@ function connectEventStream(): void {
   source.addEventListener("sync-state", (message) => {
     const state = JSON.parse((message as MessageEvent<string>).data) as SyncState;
     maxVisibleEvents = state.max_visible_events;
-    renderSyncState(state);
+    updateSyncState(state);
     enforceVisibleLimit();
   });
 
   source.addEventListener("error", () => {
-    setStatus("Reconnecting", "status-waiting");
+    setStatus("Sync loop", "status-waiting");
+    source.close();
+    startFallbackSync();
   });
+}
+
+function startFallbackSync(): void {
+  if (fallbackSyncInterval != null) {
+    return;
+  }
+
+  void syncOnce();
+  fallbackSyncInterval = window.setInterval(() => {
+    void syncOnce();
+  }, Math.max(5_000, maxVisibleEvents > 0 ? getCurrentCadenceMs() : 10_000));
+}
+
+function stopFallbackSync(): void {
+  if (fallbackSyncInterval == null) {
+    return;
+  }
+
+  window.clearInterval(fallbackSyncInterval);
+  fallbackSyncInterval = undefined;
+}
+
+async function syncOnce(): Promise<void> {
+  updateSyncState({
+    source: "inaturalist",
+    state: "syncing",
+    poll_interval_ms: getCurrentCadenceMs(),
+    max_visible_events: maxVisibleEvents,
+    last_started_at: new Date().toISOString(),
+    last_finished_at: null,
+    last_error: null,
+    last_new_event_count: 0
+  });
+
+  try {
+    const response = await fetch("/api/sync");
+    const payload = (await response.json()) as { events: PrairieDogEvent[]; status: SyncState };
+    maxVisibleEvents = payload.status.max_visible_events;
+    payload.events.forEach((event) => plotEvent(event, true));
+    updateSyncState(payload.status);
+  } catch (error) {
+    updateSyncState({
+      source: "inaturalist",
+      state: "error",
+      poll_interval_ms: getCurrentCadenceMs(),
+      max_visible_events: maxVisibleEvents,
+      last_started_at: null,
+      last_finished_at: new Date().toISOString(),
+      last_error: error instanceof Error ? error.message : String(error),
+      last_new_event_count: 0
+    });
+  }
 }
 
 function renderMap(): void {
@@ -245,6 +287,8 @@ function showHoverPreview(event: PrairieDogEvent, point: [number, number]): void
   hoverPreviewImage.src = imageUrl;
   hoverPreviewTitle.textContent = event.display.title;
   hoverPreviewPlace.textContent = event.location?.place_guess ?? event.source;
+  hoverPreviewTime.textContent = formatObservationTime(event);
+  hoverPreviewTime.dateTime = event.source_created_at ?? event.detected_at;
   hoverPreview.style.left = `${left}px`;
   hoverPreview.style.top = `${top}px`;
   hoverPreview.classList.add("hover-preview-visible");
@@ -259,6 +303,13 @@ function getPreviewImageUrl(event: PrairieDogEvent): string | undefined {
   return image?.source_media_url ?? image?.thumbnail_url;
 }
 
+function formatObservationTime(event: PrairieDogEvent): string {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(new Date(event.source_created_at ?? event.detected_at));
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
@@ -268,37 +319,12 @@ function setStatus(label: string, className: string): void {
   connectionStatus.className = `status ${className}`;
 }
 
-function renderSyncState(state: SyncState): void {
-  if (state.state === "syncing") {
-    syncStatus.textContent = "Syncing iNaturalist";
-    syncStatus.className = "sync-status sync-status-active";
-    return;
-  }
-
-  if (state.state === "error") {
-    syncStatus.textContent = state.last_error ? `Sync error: ${state.last_error}` : "Sync error";
-    syncStatus.className = "sync-status sync-status-error";
-    return;
-  }
-
-  const cadence = Math.round(state.poll_interval_ms / 1000);
-  const lastSync = state.last_finished_at ? `Last sync ${formatRelativeTime(state.last_finished_at)}` : "Sync pending";
-  syncStatus.textContent = `${lastSync} · ${state.last_new_event_count} new · every ${cadence}s`;
-  syncStatus.className = "sync-status";
+function updateSyncState(state: SyncState): void {
+  syncCadenceMs = state.poll_interval_ms;
 }
 
-function formatRelativeTime(value: string): string {
-  const elapsedSeconds = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 1000));
-
-  if (elapsedSeconds < 5) {
-    return "now";
-  }
-
-  if (elapsedSeconds < 60) {
-    return `${elapsedSeconds}s ago`;
-  }
-
-  return `${Math.round(elapsedSeconds / 60)}m ago`;
+function getCurrentCadenceMs(): number {
+  return syncCadenceMs;
 }
 
 function requireElement<T extends Element>(selector: string): T {

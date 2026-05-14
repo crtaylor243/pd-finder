@@ -28,7 +28,15 @@ Run a one-shot iNaturalist pull and print normalized JSON:
 npm run feed:inat
 ```
 
-Build and serve the local viewer/API from one process:
+Run the local hot-reloading development app:
+
+```sh
+npm run dev
+```
+
+Open the app at `http://127.0.0.1:5173`. Vite hot-reloads frontend changes and proxies API/SSE requests to the backend on `8787`.
+
+Build and serve the production-style local viewer/API from one process:
 
 ```sh
 npm run build

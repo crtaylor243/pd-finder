@@ -5,12 +5,13 @@ import { extname, join, normalize } from "node:path";
 import { appendJsonLine, readJsonLines } from "./event-store.ts";
 import { INaturalistAdapter } from "./feeds/inaturalist.ts";
 import { seedEvents } from "./seeds.ts";
+import { DEFAULT_MAX_VISIBLE_EVENTS, DEFAULT_POLL_INTERVAL_MS, type SyncState } from "./sync.ts";
 import type { PrairieDogEvent } from "./types.ts";
 
 const PORT = Number(process.env.PORT ?? 8787);
 const DATA_FILE = process.env.DATA_FILE ?? "data/events.jsonl";
-const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS ?? 10_000);
-const MAX_VISIBLE_EVENTS = Number(process.env.MAX_VISIBLE_EVENTS ?? 25);
+const POLL_INTERVAL_MS = DEFAULT_POLL_INTERVAL_MS;
+const MAX_VISIBLE_EVENTS = DEFAULT_MAX_VISIBLE_EVENTS;
 const SOURCE_VIEWER_DIR = "viewer";
 const BUILT_VIEWER_DIR = "dist";
 
@@ -26,17 +27,6 @@ let latestSync: SyncState = {
   last_finished_at: null,
   last_error: null,
   last_new_event_count: 0
-};
-
-type SyncState = {
-  source: "inaturalist";
-  state: "idle" | "syncing" | "error";
-  poll_interval_ms: number;
-  max_visible_events: number;
-  last_started_at: string | null;
-  last_finished_at: string | null;
-  last_error: string | null;
-  last_new_event_count: number;
 };
 
 type SseMessage =
@@ -58,9 +48,9 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  if (url.pathname === "/api/poll") {
+  if (url.pathname === "/api/poll" || url.pathname === "/api/sync") {
     const events = await pollOnce();
-    sendJson(response, { events });
+    sendJson(response, { events, status: latestSync });
     return;
   }
 

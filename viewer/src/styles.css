@@ -252,8 +252,8 @@ h2 {
   gap: 0.55rem;
   width: min(260px, calc(100% - 2.5rem));
   pointer-events: none;
-  opacity: 0.78;
-  transform: translateY(0);
+  opacity: 0;
+  transform: translateY(-6px);
   transition:
     opacity 140ms ease,
     transform 140ms ease;
@@ -262,6 +262,10 @@ h2 {
 .hover-preview-visible {
   opacity: 1;
   transform: translateY(0);
+}
+
+.hover-preview[aria-hidden="true"] {
+  visibility: hidden;
 }
 
 .hover-preview-image-shell {
@@ -276,27 +280,15 @@ h2 {
   place-items: center;
 }
 
+.hover-preview-image-shell[hidden] {
+  display: none;
+}
+
 .hover-preview img {
   display: block;
   width: 100%;
   height: 168px;
   object-fit: contain;
-}
-
-.hover-preview-image-empty img {
-  display: none;
-}
-
-.hover-preview-image-shell span {
-  display: none;
-  padding: 1rem;
-  color: #a7c8ae;
-  font-size: 0.82rem;
-  text-align: center;
-}
-
-.hover-preview-image-empty span {
-  display: block;
 }
 
 .hover-preview-meta {

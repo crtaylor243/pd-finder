@@ -322,20 +322,22 @@ function showHoverPreview(event: PrairieDogEvent): void {
 
   if (imageUrl) {
     hoverPreviewImage.src = imageUrl;
-    hoverPreviewImageShell.classList.remove("hover-preview-image-empty");
+    hoverPreviewImageShell.hidden = false;
   } else {
     hoverPreviewImage.removeAttribute("src");
-    hoverPreviewImageShell.classList.add("hover-preview-image-empty");
+    hoverPreviewImageShell.hidden = true;
   }
 
   hoverPreviewTitle.textContent = event.display.title;
   hoverPreviewPlace.textContent = event.location?.place_guess ?? event.source;
   hoverPreviewTime.textContent = formatObservationTime(event);
   hoverPreviewTime.dateTime = event.source_created_at ?? event.detected_at;
+  hoverPreview.removeAttribute("aria-hidden");
   hoverPreview.classList.add("hover-preview-visible");
 }
 
 function hideHoverPreview(): void {
+  hoverPreview.setAttribute("aria-hidden", "true");
   hoverPreview.classList.remove("hover-preview-visible");
 }
 

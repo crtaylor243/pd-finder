@@ -20,14 +20,13 @@
 
         <section class="map-shell" aria-label="Prairie dog locator map">
           <svg id="map" viewBox="0 0 960 610" role="img" aria-label="United States map with prairie dog signals"></svg>
-          <div id="hoverPreview" class="hover-preview" aria-live="polite">
-            <div class="hover-preview-image-shell hover-preview-image-empty">
+          <div id="hoverPreview" class="hover-preview" aria-live="polite" aria-hidden="true">
+            <div class="hover-preview-image-shell">
               <img id="hoverPreviewImage" alt="" />
-              <span id="hoverPreviewImageFallback">No image preview</span>
             </div>
             <div class="hover-preview-meta">
-              <strong id="hoverPreviewTitle">Hover a marker</strong>
-              <span id="hoverPreviewPlace">Observation details will appear here.</span>
+              <strong id="hoverPreviewTitle"></strong>
+              <span id="hoverPreviewPlace"></span>
               <time id="hoverPreviewTime"></time>
             </div>
           </div>

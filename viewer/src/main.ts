@@ -107,7 +107,7 @@ async function loadInitialEvents(): Promise<void> {
   const events = (await eventsResponse.json()) as PrairieDogEvent[];
   maxVisibleEvents = status.max_visible_events;
   updateSyncState(status);
-  events.filter((event) => event.location).slice(-maxVisibleEvents).reverse().forEach((event) => plotEvent(event, false));
+  events.filter((event) => event.location).slice(-maxVisibleEvents).forEach((event) => plotEvent(event, false));
   if (isMobileLayout()) {
     selectFirstObservation();
   }
@@ -355,8 +355,8 @@ function plotEvent(event: PrairieDogEvent, animate: boolean): void {
   plottedOrder.unshift(event.event_id);
   enforceVisibleLimit();
 
-  if (isMobileLayout()) {
-    selectObservation(event.event_id, { scrollCard: true });
+  if (animate && isMobileLayout()) {
+    selectObservation(event.event_id, { scrollCard: false });
   }
 
   if (animate) {
@@ -477,7 +477,7 @@ function createObservationCard(event: PrairieDogEvent): HTMLElement {
 function selectFirstObservation(): void {
   const firstEventId = plottedOrder.at(0);
   if (firstEventId) {
-    selectObservation(firstEventId, { scrollCard: true });
+    selectObservation(firstEventId, { scrollCard: false });
   }
 }
 

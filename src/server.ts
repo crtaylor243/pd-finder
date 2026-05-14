@@ -49,7 +49,10 @@ const server = createServer(async (request, response) => {
   }
 
   if (url.pathname === "/api/poll" || url.pathname === "/api/sync") {
-    const events = await pollOnce();
+    const events = await pollOnce().catch((error) => {
+      console.error(error instanceof Error ? error.message : error);
+      return [];
+    });
     sendJson(response, { events, status: latestSync });
     return;
   }
@@ -93,7 +96,9 @@ async function start(): Promise<void> {
   server.listen(PORT, "127.0.0.1", () => {
     console.log(`Prairie Finder API listening at http://127.0.0.1:${PORT}`);
     console.log(`Viewer available at http://127.0.0.1:${PORT}`);
-    void pollOnce();
+    void pollOnce().catch((error) => {
+      console.error(error instanceof Error ? error.message : error);
+    });
     setInterval(() => {
       void pollOnce().catch((error) => {
         console.error(error instanceof Error ? error.message : error);

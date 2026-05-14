@@ -409,7 +409,6 @@ h2 {
     display: block;
     grid-row: 2;
     height: 100%;
-    container-type: size;
     min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
@@ -421,20 +420,23 @@ h2 {
   }
 
   .observation-list {
-    display: grid;
-    grid-auto-rows: 100cqh;
+    display: flex;
+    flex-direction: column;
     gap: 0;
-    min-height: 100%;
+    height: 100%;
     padding: 0;
   }
 
   .observation-card {
+    flex: 0 0 100%;
     display: grid;
     grid-template-rows: minmax(0, 58%) minmax(0, 42%);
     gap: 0;
+    min-width: 0;
     min-height: 0;
     height: 100%;
     scroll-snap-align: start;
+    scroll-snap-stop: always;
     border: 0;
     border-top: 1px solid rgba(177, 246, 190, 0.14);
     border-radius: 0;
@@ -457,7 +459,11 @@ h2 {
 
   .observation-card-media {
     display: grid;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
     min-height: 0;
+    overflow: hidden;
     padding: 0.85rem 0.85rem 0.45rem;
     background:
       linear-gradient(rgba(57, 255, 118, 0.12), rgba(57, 255, 118, 0.03)),
@@ -471,9 +477,9 @@ h2 {
 
   .observation-card img {
     display: block;
-    width: auto;
+    width: 100%;
     max-width: 100%;
-    height: auto;
+    height: 100%;
     max-height: 100%;
     border: 1px solid rgba(177, 246, 190, 0.22);
     border-radius: 8px;

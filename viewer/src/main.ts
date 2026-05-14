@@ -88,6 +88,10 @@ let syncCadenceMs = 10_000;
 let fallbackSyncInterval: number | undefined;
 let selectedObservationId: string | undefined;
 let railScrollTimer: number | undefined;
+let railAnimationFrame: number | undefined;
+let wheelSnapLocked = false;
+let touchStartY: number | undefined;
+let touchLastY: number | undefined;
 
 renderMap();
 void loadInitialEvents();
@@ -95,6 +99,10 @@ connectEventStream();
 
 hoverPreviewClose.addEventListener("click", hideHoverPreview);
 observationRail.addEventListener("scroll", handleRailScroll, { passive: true });
+observationRail.addEventListener("wheel", handleRailWheel, { passive: false });
+observationRail.addEventListener("touchstart", handleRailTouchStart, { passive: true });
+observationRail.addEventListener("touchmove", handleRailTouchMove, { passive: false });
+observationRail.addEventListener("touchend", handleRailTouchEnd);
 svg.addEventListener("click", () => {
   if (isMobileLayout()) {
     selectFirstObservation();
@@ -487,6 +495,13 @@ function selectObservation(eventId: string, options: { scrollCard: boolean }): v
     return;
   }
 
+  if (selectedObservationId === eventId) {
+    if (options.scrollCard && isMobileLayout()) {
+      scrollObservationIntoView(observation.card, "smooth");
+    }
+    return;
+  }
+
   clearSelectedObservation();
   selectedObservationId = eventId;
   observation.marker.classList.add("marker-selected");
@@ -494,8 +509,13 @@ function selectObservation(eventId: string, options: { scrollCard: boolean }): v
   observation.card.setAttribute("aria-current", "true");
 
   if (options.scrollCard && isMobileLayout()) {
-    observation.card.scrollIntoView({ block: "start", behavior: "smooth" });
+    scrollObservationIntoView(observation.card, "smooth");
   }
+}
+
+function scrollObservationIntoView(card: HTMLElement, behavior: ScrollBehavior): void {
+  const targetTop = card.offsetTop - observationList.offsetTop;
+  observationRail.scrollTo({ top: targetTop, behavior });
 }
 
 function clearSelectedObservation(): void {
@@ -515,21 +535,118 @@ function handleRailScroll(): void {
     return;
   }
 
+  if (railAnimationFrame != null) {
+    window.cancelAnimationFrame(railAnimationFrame);
+  }
+
+  railAnimationFrame = window.requestAnimationFrame(() => {
+    railAnimationFrame = undefined;
+    selectVisibleRailObservation();
+  });
+
   if (railScrollTimer != null) {
     window.clearTimeout(railScrollTimer);
   }
 
   railScrollTimer = window.setTimeout(() => {
-    const closestEventId = getClosestRailEventId();
-    if (closestEventId) {
-      selectObservation(closestEventId, { scrollCard: false });
-    }
-  }, 80);
+    railScrollTimer = undefined;
+    snapToVisibleRailObservation();
+  }, 110);
+}
+
+function handleRailWheel(wheelEvent: WheelEvent): void {
+  if (!isMobileLayout() || Math.abs(wheelEvent.deltaY) < Math.abs(wheelEvent.deltaX)) {
+    return;
+  }
+
+  wheelEvent.preventDefault();
+
+  if (wheelSnapLocked) {
+    return;
+  }
+
+  const currentIndex = getSelectedRailIndex();
+  const direction = wheelEvent.deltaY > 0 ? 1 : -1;
+  const nextIndex = clamp(currentIndex + direction, 0, plottedOrder.length - 1);
+  const nextEventId = plottedOrder.at(nextIndex);
+
+  if (nextEventId) {
+    wheelSnapLocked = true;
+    selectObservation(nextEventId, { scrollCard: true });
+    window.setTimeout(() => {
+      wheelSnapLocked = false;
+    }, 360);
+  }
+}
+
+function handleRailTouchStart(touchEvent: TouchEvent): void {
+  if (!isMobileLayout()) {
+    return;
+  }
+
+  const touch = touchEvent.touches.item(0);
+  touchStartY = touch?.clientY;
+  touchLastY = touch?.clientY;
+}
+
+function handleRailTouchMove(touchEvent: TouchEvent): void {
+  if (!isMobileLayout() || touchStartY == null) {
+    return;
+  }
+
+  const touch = touchEvent.touches.item(0);
+  touchLastY = touch?.clientY ?? touchLastY;
+  touchEvent.preventDefault();
+}
+
+function handleRailTouchEnd(): void {
+  if (!isMobileLayout() || touchStartY == null || touchLastY == null) {
+    touchStartY = undefined;
+    touchLastY = undefined;
+    return;
+  }
+
+  const deltaY = touchStartY - touchLastY;
+  touchStartY = undefined;
+  touchLastY = undefined;
+
+  if (Math.abs(deltaY) < 36) {
+    snapToVisibleRailObservation();
+    return;
+  }
+
+  const currentIndex = getSelectedRailIndex();
+  const direction = deltaY > 0 ? 1 : -1;
+  const nextIndex = clamp(currentIndex + direction, 0, plottedOrder.length - 1);
+  const nextEventId = plottedOrder.at(nextIndex);
+
+  if (nextEventId) {
+    selectObservation(nextEventId, { scrollCard: true });
+  }
+}
+
+function selectVisibleRailObservation(): void {
+  const closestEventId = getClosestRailEventId();
+  if (closestEventId) {
+    selectObservation(closestEventId, { scrollCard: false });
+  }
+}
+
+function snapToVisibleRailObservation(): void {
+  const closestEventId = getClosestRailEventId();
+  const card = closestEventId ? plotted.get(closestEventId)?.card : undefined;
+
+  if (!closestEventId || !card) {
+    return;
+  }
+
+  selectObservation(closestEventId, { scrollCard: false });
+  scrollObservationIntoView(card, "smooth");
 }
 
 function getClosestRailEventId(): string | undefined {
   const railBounds = observationRail.getBoundingClientRect();
-  const targetY = railBounds.top + railBounds.height * 0.38;
+  const targetY = railBounds.top + railBounds.height / 2;
   let closestEventId: string | undefined;
   let closestDistance = Number.POSITIVE_INFINITY;
 
@@ -550,6 +667,22 @@ function getClosestRailEventId(): string | undefined {
   }
 
   return closestEventId;
+}
+
+function getSelectedRailIndex(): number {
+  if (selectedObservationId) {
+    const selectedIndex = plottedOrder.indexOf(selectedObservationId);
+    if (selectedIndex >= 0) {
+      return selectedIndex;
+    }
+  }
+
+  const closestEventId = getClosestRailEventId();
+  return closestEventId ? Math.max(0, plottedOrder.indexOf(closestEventId)) : 0;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
 }
 
 function getPreviewImageUrl(event: PrairieDogEvent): string | undefined {

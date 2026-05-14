@@ -60,6 +60,7 @@ const svg = requireElement<SVGSVGElement>("#map");
 const connectionStatus = requireElement<HTMLSpanElement>("#connectionStatus");
 const emptyState = requireElement<HTMLDivElement>("#emptyState");
 const hoverPreview = requireElement<HTMLDivElement>("#hoverPreview");
+const hoverPreviewImageShell = requireElement<HTMLDivElement>(".hover-preview-image-shell");
 const hoverPreviewImage = requireElement<HTMLImageElement>("#hoverPreviewImage");
 const hoverPreviewTitle = requireElement<HTMLElement>("#hoverPreviewTitle");
 const hoverPreviewPlace = requireElement<HTMLSpanElement>("#hoverPreviewPlace");
@@ -271,9 +272,9 @@ function plotEvent(event: PrairieDogEvent, animate: boolean): void {
   dot.setAttribute("r", "5");
   marker.append(dot);
 
-  marker.addEventListener("mouseenter", () => showHoverPreview(event, point));
+  marker.addEventListener("mouseenter", () => showHoverPreview(event));
   marker.addEventListener("mouseleave", hideHoverPreview);
-  marker.addEventListener("focus", () => showHoverPreview(event, point));
+  marker.addEventListener("focus", () => showHoverPreview(event));
   marker.addEventListener("blur", hideHoverPreview);
   marker.addEventListener("click", () => {
     window.open(event.source_url, "_blank", "noreferrer");
@@ -316,29 +317,21 @@ function enforceVisibleLimit(): void {
   }
 }
 
-function showHoverPreview(event: PrairieDogEvent, point: [number, number]): void {
+function showHoverPreview(event: PrairieDogEvent): void {
   const imageUrl = getPreviewImageUrl(event);
 
-  if (!imageUrl) {
-    return;
+  if (imageUrl) {
+    hoverPreviewImage.src = imageUrl;
+    hoverPreviewImageShell.classList.remove("hover-preview-image-empty");
+  } else {
+    hoverPreviewImage.removeAttribute("src");
+    hoverPreviewImageShell.classList.add("hover-preview-image-empty");
   }
 
-  const svgRect = svg.getBoundingClientRect();
-  const mapX = (point[0] / 960) * svgRect.width;
-  const mapY = (point[1] / 610) * svgRect.height;
-  const previewWidth = 230;
-  const previewHeight = 205;
-  const margin = 14;
-  const left = clamp(mapX + 18, margin, svgRect.width - previewWidth - margin);
-  const top = clamp(mapY - previewHeight - 14, margin, svgRect.height - previewHeight - margin);
-
-  hoverPreviewImage.src = imageUrl;
   hoverPreviewTitle.textContent = event.display.title;
   hoverPreviewPlace.textContent = event.location?.place_guess ?? event.source;
   hoverPreviewTime.textContent = formatObservationTime(event);
   hoverPreviewTime.dateTime = event.source_created_at ?? event.detected_at;
-  hoverPreview.style.left = `${left}px`;
-  hoverPreview.style.top = `${top}px`;
   hoverPreview.classList.add("hover-preview-visible");
 }
 
@@ -356,10 +349,6 @@ function formatObservationTime(event: PrairieDogEvent): string {
     dateStyle: "medium",
     timeStyle: "short"
   }).format(new Date(event.source_created_at ?? event.detected_at));
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
 }
 
 function setStatus(label: string, className: string): void {

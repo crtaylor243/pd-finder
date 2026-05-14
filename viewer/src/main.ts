@@ -92,6 +92,9 @@ let railAnimationFrame: number | undefined;
 let wheelSnapLocked = false;
 let touchStartY: number | undefined;
 let touchLastY: number | undefined;
+let railGestureStartIndex: number | undefined;
+let railPointerGestureActive = false;
+let lastSelectedRailIndex = 0;
 
 renderMap();
 void loadInitialEvents();
@@ -103,6 +106,15 @@ observationRail.addEventListener("wheel", handleRailWheel, { passive: false });
 observationRail.addEventListener("touchstart", handleRailTouchStart, { passive: true });
 observationRail.addEventListener("touchmove", handleRailTouchMove, { passive: false });
 observationRail.addEventListener("touchend", handleRailTouchEnd);
+observationRail.addEventListener("mousedown", handleRailPointerStart);
+window.addEventListener("mouseup", handleRailPointerEnd);
+mobileLayoutQuery.addEventListener("change", () => {
+  if (isMobileLayout()) {
+    selectFirstObservation();
+  } else {
+    clearSelectedObservation();
+  }
+});
 svg.addEventListener("click", () => {
   if (isMobileLayout()) {
     selectFirstObservation();
@@ -504,6 +516,10 @@ function selectObservation(eventId: string, options: { scrollCard: boolean }): v
 
   clearSelectedObservation();
   selectedObservationId = eventId;
+  const selectedIndex = plottedOrder.indexOf(eventId);
+  if (selectedIndex >= 0) {
+    lastSelectedRailIndex = selectedIndex;
+  }
   observation.marker.classList.add("marker-selected");
   observation.card.classList.add("observation-card-selected");
   observation.card.setAttribute("aria-current", "true");
@@ -535,6 +551,8 @@ function handleRailScroll(): void {
     return;
   }
 
+  railGestureStartIndex ??= getSelectedRailIndex();
+
   if (railAnimationFrame != null) {
     window.cancelAnimationFrame(railAnimationFrame);
   }
@@ -551,6 +569,11 @@ function handleRailScroll(): void {
   railScrollTimer = window.setTimeout(() => {
     railScrollTimer = undefined;
     snapToVisibleRailObservation();
+    if (!railPointerGestureActive) {
+      window.setTimeout(() => {
+        railGestureStartIndex = undefined;
+      }, 220);
+    }
   }, 110);
 }
 
@@ -587,6 +610,7 @@ function handleRailTouchStart(touchEvent: TouchEvent): void {
   const touch = touchEvent.touches.item(0);
   touchStartY = touch?.clientY;
   touchLastY = touch?.clientY;
+  railGestureStartIndex = getSelectedRailIndex();
 }
 
 function handleRailTouchMove(touchEvent: TouchEvent): void {
@@ -609,6 +633,7 @@ function handleRailTouchEnd(): void {
   const deltaY = touchStartY - touchLastY;
   touchStartY = undefined;
   touchLastY = undefined;
+  railGestureStartIndex = undefined;
 
   if (Math.abs(deltaY) < 36) {
     snapToVisibleRailObservation();
@@ -625,22 +650,43 @@ function handleRailTouchEnd(): void {
   }
 }
 
+function handleRailPointerStart(): void {
+  if (!isMobileLayout()) {
+    return;
+  }
+
+  railPointerGestureActive = true;
+  railGestureStartIndex = getSelectedRailIndex();
+}
+
+function handleRailPointerEnd(): void {
+  if (!railPointerGestureActive) {
+    return;
+  }
+
+  railPointerGestureActive = false;
+  snapToVisibleRailObservation();
+  window.setTimeout(() => {
+    railGestureStartIndex = undefined;
+  }, 220);
+}
+
 function selectVisibleRailObservation(): void {
-  const closestEventId = getClosestRailEventId();
-  if (closestEventId) {
-    selectObservation(closestEventId, { scrollCard: false });
+  const visibleEventId = getGestureClampedRailEventId();
+  if (visibleEventId) {
+    selectObservation(visibleEventId, { scrollCard: false });
   }
 }
 
 function snapToVisibleRailObservation(): void {
-  const closestEventId = getClosestRailEventId();
-  const card = closestEventId ? plotted.get(closestEventId)?.card : undefined;
+  const visibleEventId = getGestureClampedRailEventId();
+  const card = visibleEventId ? plotted.get(visibleEventId)?.card : undefined;
 
-  if (!closestEventId || !card) {
+  if (!visibleEventId || !card) {
     return;
   }
 
-  selectObservation(closestEventId, { scrollCard: false });
+  selectObservation(visibleEventId, { scrollCard: false });
   scrollObservationIntoView(card, "smooth");
 }
 
@@ -669,6 +715,23 @@ function getClosestRailEventId(): string | undefined {
   return closestEventId;
 }
 
+function getGestureClampedRailEventId(): string | undefined {
+  const closestEventId = getClosestRailEventId();
+  if (!closestEventId) {
+    return undefined;
+  }
+
+  const closestIndex = plottedOrder.indexOf(closestEventId);
+  const startIndex = railGestureStartIndex ?? lastSelectedRailIndex;
+
+  if (closestIndex < 0 || startIndex < 0 || Math.abs(closestIndex - startIndex) <= 1) {
+    return closestEventId;
+  }
+
+  const direction = closestIndex > startIndex ? 1 : -1;
+  return plottedOrder.at(clamp(startIndex + direction, 0, plottedOrder.length - 1));
+}
+
 function getSelectedRailIndex(): number {
   if (selectedObservationId) {
     const selectedIndex = plottedOrder.indexOf(selectedObservationId);
@@ -677,8 +740,16 @@ function getSelectedRailIndex(): number {
     }
   }
 
+  const selectedCardEventId = observationList.querySelector<HTMLElement>(".observation-card-selected")?.dataset.eventId;
+  if (selectedCardEventId) {
+    const selectedCardIndex = plottedOrder.indexOf(selectedCardEventId);
+    if (selectedCardIndex >= 0) {
+      return selectedCardIndex;
+    }
+  }
+
   const closestEventId = getClosestRailEventId();
-  return closestEventId ? Math.max(0, plottedOrder.indexOf(closestEventId)) : 0;
+  return closestEventId ? Math.max(0, plottedOrder.indexOf(closestEventId)) : lastSelectedRailIndex;
 }
 
 function clamp(value: number, min: number, max: number): number {

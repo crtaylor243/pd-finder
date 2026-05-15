@@ -14,6 +14,9 @@
             <h1>Prairie Dog Finder</h1>
           </div>
           <div class="status-cluster">
+            <button id="radarToggle" class="radar-toggle" type="button" aria-pressed="false">
+              Radar
+            </button>
             <span id="connectionStatus" class="status status-waiting">Connecting</span>
           </div>
         </header>
@@ -35,9 +38,16 @@
           <div id="observationRail" class="observation-rail" aria-label="Prairie dog observations">
             <div id="observationList" class="observation-list"></div>
           </div>
+          <aside id="prairieFeed" class="prairie-feed" aria-label="Prairie feed">
+            <div class="prairie-feed-header">
+              <h2>Prairie Feed</h2>
+              <span>Latest signals</span>
+            </div>
+            <ol id="prairieFeedList" class="prairie-feed-list"></ol>
+          </aside>
           <div id="emptyState" class="empty-state">
             <strong>Listening for prairie dog signals</strong>
-            <span>No new public geotagged prairie dog events detected yet.</span>
+            <span>Live public observations from iNaturalist.</span>
           </div>
         </section>
       </section>

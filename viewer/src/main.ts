@@ -57,8 +57,9 @@ type SyncState = {
 };
 
 const svg = requireElement<SVGSVGElement>("#map");
+const mapShell = requireElement<HTMLElement>(".map-shell");
 const connectionStatus = requireElement<HTMLSpanElement>("#connectionStatus");
-const emptyState = requireElement<HTMLDivElement>("#emptyState");
+const radarToggle = requireElement<HTMLButtonElement>("#radarToggle");
 const hoverPreview = requireElement<HTMLDivElement>("#hoverPreview");
 const hoverPreviewImageShell = requireElement<HTMLDivElement>(".hover-preview-image-shell");
 const hoverPreviewImage = requireElement<HTMLImageElement>("#hoverPreviewImage");
@@ -69,11 +70,14 @@ const hoverPreviewSource = requireElement<HTMLAnchorElement>("#hoverPreviewSourc
 const hoverPreviewClose = requireElement<HTMLButtonElement>("#hoverPreviewClose");
 const observationRail = requireElement<HTMLDivElement>("#observationRail");
 const observationList = requireElement<HTMLDivElement>("#observationList");
+const prairieFeedList = requireElement<HTMLOListElement>("#prairieFeedList");
 
 type PlottedObservation = {
   event: PrairieDogEvent;
   marker: SVGGElement;
   card: HTMLElement;
+  feedItem: HTMLElement;
+  sweepDelay: number;
 };
 
 const projection = geoAlbersUsa().translate([480, 305]).scale(1180);
@@ -83,9 +87,16 @@ const plottedOrder: string[] = [];
 const remoteRealtimeUrl = getRemoteRealtimeUrl();
 const remoteApiBase = remoteRealtimeUrl ? toHttpBase(remoteRealtimeUrl) : undefined;
 const mobileLayoutQuery = window.matchMedia("(max-width: 880px)");
+const RADAR_SWEEP_MS = 7_500;
+const SWEEP_PULSE_MS = 780;
+const RADAR_CSS_START_DEGREES = 90;
+const RADAR_PHASE_WRAP_TOLERANCE_MS = 140;
 let maxVisibleEvents = 25;
 let syncCadenceMs = 10_000;
 let fallbackSyncInterval: number | undefined;
+let radarPulseInterval: number | undefined;
+let radarEnabled = false;
+let radarStartedAt = 0;
 let selectedObservationId: string | undefined;
 let railScrollTimer: number | undefined;
 let railAnimationFrame: number | undefined;
@@ -100,7 +111,8 @@ renderMap();
 void loadInitialEvents();
 connectEventStream();
 
-hoverPreviewClose.addEventListener("click", hideHoverPreview);
+radarToggle.addEventListener("click", () => setRadarEnabled(!radarEnabled));
+hoverPreviewClose.addEventListener("click", () => hideHoverPreview());
 observationRail.addEventListener("scroll", handleRailScroll, { passive: true });
 observationRail.addEventListener("wheel", handleRailWheel, { passive: false });
 observationRail.addEventListener("touchstart", handleRailTouchStart, { passive: true });
@@ -266,21 +278,28 @@ function renderMap(): void {
     };
   };
   const states = feature(us as never, topology.objects.states) as FeatureCollection<Geometry>;
-  const nation = feature(us as never, topology.objects.nation) as Feature<Geometry>;
+  const continentalAndAlaskaStates: FeatureCollection<Geometry> = {
+    ...states,
+    features: states.features.filter((state) => !isHawaiiState(state))
+  };
 
   const nationPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
   nationPath.setAttribute("class", "nation");
-  nationPath.setAttribute("d", path(nation) ?? "");
+  nationPath.setAttribute("d", path(continentalAndAlaskaStates) ?? "");
   svg.append(nationPath);
 
   const stateGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
   stateGroup.setAttribute("class", "states");
-  for (const state of states.features) {
+  for (const state of continentalAndAlaskaStates.features) {
     const statePath = document.createElementNS("http://www.w3.org/2000/svg", "path");
     statePath.setAttribute("d", path(state) ?? "");
     stateGroup.append(statePath);
   }
   svg.append(stateGroup);
+}
+
+function isHawaiiState(state: Feature<Geometry>): boolean {
+  return String(state.id) === "15" || state.properties?.name === "Hawaii";
 }
 
 function plotEvent(event: PrairieDogEvent, animate: boolean): void {
@@ -293,7 +312,6 @@ function plotEvent(event: PrairieDogEvent, animate: boolean): void {
     return;
   }
 
-  emptyState.classList.add("empty-state-hidden");
   const marker = document.createElementNS("http://www.w3.org/2000/svg", "g");
   marker.setAttribute("class", `marker marker-${event.display.pulse_color}${animate ? " marker-new marker-live" : ""}`);
   marker.setAttribute("transform", `translate(${point[0]} ${point[1]})`);
@@ -323,24 +341,25 @@ function plotEvent(event: PrairieDogEvent, animate: boolean): void {
 
   marker.addEventListener("mouseenter", () => {
     if (!isMobileLayout()) {
-      showDesktopPreview(event);
+      hideHoverPreview({ clearSelection: false });
     }
   });
   marker.addEventListener("mouseleave", () => {
     if (!isMobileLayout()) {
-      hideHoverPreview();
+      hideHoverPreview({ clearSelection: false });
     }
   });
   marker.addEventListener("focus", () => {
     if (!isMobileLayout()) {
-      showDesktopPreview(event);
+      hideHoverPreview({ clearSelection: false });
+      selectObservation(event.event_id, { scrollCard: false });
     } else {
       selectObservation(event.event_id, { scrollCard: true });
     }
   });
   marker.addEventListener("blur", () => {
     if (!isMobileLayout()) {
-      hideHoverPreview();
+      clearSelectedObservation();
     }
   });
   marker.addEventListener("click", (mouseEvent) => {
@@ -359,7 +378,8 @@ function plotEvent(event: PrairieDogEvent, animate: boolean): void {
       if (isMobileLayout()) {
         selectObservation(event.event_id, { scrollCard: true });
       } else {
-        showDesktopPreview(event);
+        selectObservation(event.event_id, { scrollCard: false });
+        pulseObservation(event.event_id);
       }
     }
 
@@ -369,11 +389,17 @@ function plotEvent(event: PrairieDogEvent, animate: boolean): void {
   });
 
   const card = createObservationCard(event);
+  const feedItem = createPrairieFeedItem(event);
+  const sweepDelay = getRadarSweepDelay(point);
   svg.append(marker);
   observationList.prepend(card);
-  plotted.set(event.event_id, { event, marker, card });
+  prairieFeedList.prepend(feedItem);
+  plotted.set(event.event_id, { event, marker, card, feedItem, sweepDelay });
   plottedOrder.unshift(event.event_id);
   enforceVisibleLimit();
+  syncPrairieFeed();
+  syncRadarPulseLoop();
+  scheduleObservationForCurrentSweep(event.event_id);
 
   if (animate && isMobileLayout()) {
     selectObservation(event.event_id, { scrollCard: false });
@@ -405,16 +431,20 @@ function enforceVisibleLimit(): void {
     }
 
     observation.card.remove();
+    observation.feedItem.remove();
     observation.marker.classList.add("marker-expiring");
     window.setTimeout(() => observation.marker.remove(), 650);
   }
+
+  syncPrairieFeed();
+  syncRadarPulseLoop();
 
   if (isMobileLayout() && !selectedObservationId) {
     selectFirstObservation();
   }
 }
 
-function showDesktopPreview(event: PrairieDogEvent): void {
+function showFeedObservationPreview(event: PrairieDogEvent): void {
   const imageUrl = getPreviewImageUrl(event);
 
   selectObservation(event.event_id, { scrollCard: false });
@@ -425,6 +455,8 @@ function showDesktopPreview(event: PrairieDogEvent): void {
   } else {
     hoverPreviewImage.removeAttribute("src");
     hoverPreviewImageShell.hidden = true;
+    hideHoverPreview({ clearSelection: false });
+    return;
   }
 
   hoverPreviewTitle.textContent = event.display.title;
@@ -436,8 +468,10 @@ function showDesktopPreview(event: PrairieDogEvent): void {
   hoverPreview.classList.add("hover-preview-visible");
 }
 
-function hideHoverPreview(): void {
-  if (!isMobileLayout()) {
+function hideHoverPreview(options: { clearSelection?: boolean } = {}): void {
+  const clearSelection = options.clearSelection ?? true;
+
+  if (clearSelection && !isMobileLayout()) {
     clearSelectedObservation();
   }
 
@@ -494,6 +528,173 @@ function createObservationCard(event: PrairieDogEvent): HTMLElement {
   return card;
 }
 
+function createPrairieFeedItem(event: PrairieDogEvent): HTMLElement {
+  const item = document.createElement("li");
+  item.className = "prairie-feed-item";
+  item.dataset.eventId = event.event_id;
+
+  const button = document.createElement("button");
+  button.className = "prairie-feed-button";
+  button.type = "button";
+  button.addEventListener("mouseenter", () => {
+    showFeedObservationPreview(event);
+    pulseObservation(event.event_id);
+  });
+  button.addEventListener("mouseleave", () => hideHoverPreview());
+  button.addEventListener("focus", () => {
+    showFeedObservationPreview(event);
+    pulseObservation(event.event_id);
+  });
+  button.addEventListener("blur", () => hideHoverPreview());
+  button.addEventListener("click", () => {
+    showFeedObservationPreview(event);
+    pulseObservation(event.event_id);
+  });
+
+  const marker = document.createElement("span");
+  marker.className = "prairie-feed-marker";
+  marker.setAttribute("aria-hidden", "true");
+  button.append(marker);
+
+  const body = document.createElement("span");
+  body.className = "prairie-feed-body";
+
+  const time = document.createElement("time");
+  time.textContent = formatObservationTime(event);
+  time.dateTime = event.source_created_at ?? event.detected_at;
+  body.append(time);
+
+  const location = document.createElement("span");
+  location.textContent = event.location?.place_guess ?? event.source;
+  body.append(location);
+
+  button.append(body);
+  item.append(button);
+  return item;
+}
+
+function syncPrairieFeed(): void {
+  plottedOrder.forEach((eventId, index) => {
+    const observation = plotted.get(eventId);
+    if (!observation) {
+      return;
+    }
+
+    observation.feedItem.style.setProperty("--feed-index", `"${String(index + 1).padStart(2, "0")}"`);
+    observation.feedItem.style.setProperty("--feed-fade", String(Math.max(0.28, 1 - index * 0.045)));
+    observation.marker.style.setProperty("--marker-opacity", String(Math.max(0.34, 0.64 - index * 0.032)));
+  });
+}
+
+function syncRadarPulseLoop(): void {
+  if (!radarEnabled || radarPulseInterval != null || plottedOrder.length === 0) {
+    return;
+  }
+
+  if (radarStartedAt === 0) {
+    radarStartedAt = performance.now();
+  }
+
+  pulseSweptMarkers();
+  radarPulseInterval = window.setInterval(pulseSweptMarkers, RADAR_SWEEP_MS);
+}
+
+function setRadarEnabled(nextEnabled: boolean): void {
+  radarEnabled = nextEnabled;
+  radarToggle.setAttribute("aria-pressed", String(nextEnabled));
+  mapShell.classList.toggle("map-shell-radar", nextEnabled);
+
+  if (nextEnabled) {
+    const initialOffset = getRadarInitialOffset();
+    radarStartedAt = performance.now() - initialOffset;
+    mapShell.style.setProperty("--radar-animation-delay", `${-initialOffset}ms`);
+    syncRadarPulseLoop();
+    return;
+  }
+
+  if (radarPulseInterval != null) {
+    window.clearInterval(radarPulseInterval);
+    radarPulseInterval = undefined;
+  }
+
+  for (const observation of plotted.values()) {
+    observation.marker.classList.remove("marker-swept");
+  }
+
+  radarStartedAt = 0;
+  mapShell.style.removeProperty("--radar-animation-delay");
+}
+
+function pulseSweptMarkers(): void {
+  for (const eventId of plottedOrder) {
+    const observation = plotted.get(eventId);
+    if (!observation) {
+      continue;
+    }
+
+    window.setTimeout(() => {
+      pulseObservation(eventId);
+    }, getRemainingSweepDelay(observation.sweepDelay));
+  }
+}
+
+function getRadarInitialOffset(): number {
+  let earliestDelay = Number.POSITIVE_INFINITY;
+
+  for (const eventId of plottedOrder) {
+    const observation = plotted.get(eventId);
+    if (observation) {
+      earliestDelay = Math.min(earliestDelay, observation.sweepDelay);
+    }
+  }
+
+  return Number.isFinite(earliestDelay) ? earliestDelay : 0;
+}
+
+function scheduleObservationForCurrentSweep(eventId: string): void {
+  if (!radarEnabled || radarStartedAt === 0) {
+    return;
+  }
+
+  const observation = plotted.get(eventId);
+  if (!observation) {
+    return;
+  }
+
+  window.setTimeout(() => {
+    pulseObservation(eventId);
+  }, getRemainingSweepDelay(observation.sweepDelay));
+}
+
+function pulseObservation(eventId: string): void {
+  const observation = plotted.get(eventId);
+  if (!observation) {
+    return;
+  }
+
+  observation.marker.classList.remove("marker-swept");
+  window.requestAnimationFrame(() => {
+    observation.marker.classList.add("marker-swept");
+    window.setTimeout(() => observation.marker.classList.remove("marker-swept"), SWEEP_PULSE_MS);
+  });
+}
+
+function getRadarSweepDelay(point: [number, number]): number {
+  const centerX = 480;
+  const centerY = 305;
+  const radians = Math.atan2(point[1] - centerY, point[0] - centerX);
+  const degrees = (radians * 180) / Math.PI;
+  const normalizedDegrees = (degrees + 360) % 360;
+  const cssDegrees = (normalizedDegrees + RADAR_CSS_START_DEGREES) % 360;
+  return (cssDegrees / 360) * RADAR_SWEEP_MS;
+}
+
+function getRemainingSweepDelay(sweepDelay: number): number {
+  const elapsed = (performance.now() - radarStartedAt) % RADAR_SWEEP_MS;
+  const remaining = (sweepDelay - elapsed + RADAR_SWEEP_MS) % RADAR_SWEEP_MS;
+  return remaining > RADAR_SWEEP_MS - RADAR_PHASE_WRAP_TOLERANCE_MS ? 0 : remaining;
+}
+
 function selectFirstObservation(): void {
   const firstEventId = plottedOrder.at(0);
   if (firstEventId) {
@@ -522,7 +723,9 @@ function selectObservation(eventId: string, options: { scrollCard: boolean }): v
   }
   observation.marker.classList.add("marker-selected");
   observation.card.classList.add("observation-card-selected");
+  observation.feedItem.classList.add("prairie-feed-item-selected");
   observation.card.setAttribute("aria-current", "true");
+  observation.feedItem.setAttribute("aria-current", "true");
 
   if (options.scrollCard && isMobileLayout()) {
     scrollObservationIntoView(observation.card, "smooth");
@@ -542,7 +745,9 @@ function clearSelectedObservation(): void {
   const previous = plotted.get(selectedObservationId);
   previous?.marker.classList.remove("marker-selected");
   previous?.card.classList.remove("observation-card-selected");
+  previous?.feedItem.classList.remove("prairie-feed-item-selected");
   previous?.card.removeAttribute("aria-current");
+  previous?.feedItem.removeAttribute("aria-current");
   selectedObservationId = undefined;
 }
 

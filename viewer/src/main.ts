@@ -57,9 +57,7 @@ type SyncState = {
 };
 
 const svg = requireElement<SVGSVGElement>("#map");
-const mapShell = requireElement<HTMLElement>(".map-shell");
 const connectionStatus = requireElement<HTMLSpanElement>("#connectionStatus");
-const radarToggle = requireElement<HTMLButtonElement>("#radarToggle");
 const hoverPreview = requireElement<HTMLDivElement>("#hoverPreview");
 const hoverPreviewImageShell = requireElement<HTMLDivElement>(".hover-preview-image-shell");
 const hoverPreviewImage = requireElement<HTMLImageElement>("#hoverPreviewImage");
@@ -77,7 +75,6 @@ type PlottedObservation = {
   marker: SVGGElement;
   card: HTMLElement;
   feedItem: HTMLElement;
-  sweepDelay: number;
 };
 
 const projection = geoAlbersUsa().translate([480, 305]).scale(1180);
@@ -87,16 +84,9 @@ const plottedOrder: string[] = [];
 const remoteRealtimeUrl = getRemoteRealtimeUrl();
 const remoteApiBase = remoteRealtimeUrl ? toHttpBase(remoteRealtimeUrl) : undefined;
 const mobileLayoutQuery = window.matchMedia("(max-width: 880px)");
-const RADAR_SWEEP_MS = 7_500;
-const SWEEP_PULSE_MS = 780;
-const RADAR_CSS_START_DEGREES = 90;
-const RADAR_PHASE_WRAP_TOLERANCE_MS = 140;
 let maxVisibleEvents = 25;
 let syncCadenceMs = 10_000;
 let fallbackSyncInterval: number | undefined;
-let radarPulseInterval: number | undefined;
-let radarEnabled = false;
-let radarStartedAt = 0;
 let selectedObservationId: string | undefined;
 let railScrollTimer: number | undefined;
 let railAnimationFrame: number | undefined;
@@ -111,7 +101,6 @@ renderMap();
 void loadInitialEvents();
 connectEventStream();
 
-radarToggle.addEventListener("click", () => setRadarEnabled(!radarEnabled));
 hoverPreviewClose.addEventListener("click", () => hideHoverPreview());
 observationRail.addEventListener("scroll", handleRailScroll, { passive: true });
 observationRail.addEventListener("wheel", handleRailWheel, { passive: false });
@@ -134,14 +123,19 @@ svg.addEventListener("click", () => {
 });
 
 async function loadInitialEvents(): Promise<void> {
-  const [statusResponse, eventsResponse] = await Promise.all([fetch(apiUrl("/status")), fetch(apiUrl("/events"))]);
-  const status = (await statusResponse.json()) as SyncState;
-  const events = (await eventsResponse.json()) as PrairieDogEvent[];
-  maxVisibleEvents = status.max_visible_events;
-  updateSyncState(status);
-  events.filter((event) => event.location).slice(-maxVisibleEvents).forEach((event) => plotEvent(event, false));
-  if (isMobileLayout()) {
-    selectFirstObservation();
+  try {
+    const [statusResponse, eventsResponse] = await Promise.all([fetch(apiUrl("/status")), fetch(apiUrl("/events"))]);
+    const status = (await statusResponse.json()) as SyncState;
+    const events = (await eventsResponse.json()) as PrairieDogEvent[];
+    maxVisibleEvents = status.max_visible_events;
+    updateSyncState(status);
+    events.filter((event) => event.location).slice(-maxVisibleEvents).forEach((event) => plotEvent(event, false));
+    setStatus("Live", "status-live");
+    if (isMobileLayout()) {
+      selectFirstObservation();
+    }
+  } catch {
+    setStatus("Offline", "status-offline");
   }
 }
 
@@ -171,7 +165,7 @@ function connectEventStream(): void {
   });
 
   source.addEventListener("error", () => {
-    setStatus("Sync loop", "status-waiting");
+    setStatus("Offline", "status-offline");
     source.close();
     startFallbackSync();
   });
@@ -207,12 +201,12 @@ function connectWorkerWebSocket(url: string): void {
   });
 
   socket.addEventListener("close", () => {
-    setStatus("Live polling", "status-waiting");
+    setStatus("Offline", "status-offline");
     startFallbackSync();
   });
 
   socket.addEventListener("error", () => {
-    setStatus("Live polling", "status-waiting");
+    setStatus("Offline", "status-offline");
     socket.close();
     startFallbackSync();
   });
@@ -256,7 +250,9 @@ async function syncOnce(): Promise<void> {
     maxVisibleEvents = payload.status.max_visible_events;
     payload.events.forEach((event) => plotEvent(event, true));
     updateSyncState(payload.status);
+    setStatus("Live", "status-live");
   } catch (error) {
+    setStatus("Offline", "status-offline");
     updateSyncState({
       source: "inaturalist",
       state: "error",
@@ -379,7 +375,6 @@ function plotEvent(event: PrairieDogEvent, animate: boolean): void {
         selectObservation(event.event_id, { scrollCard: true });
       } else {
         selectObservation(event.event_id, { scrollCard: false });
-        pulseObservation(event.event_id);
       }
     }
 
@@ -390,16 +385,13 @@ function plotEvent(event: PrairieDogEvent, animate: boolean): void {
 
   const card = createObservationCard(event);
   const feedItem = createPrairieFeedItem(event);
-  const sweepDelay = getRadarSweepDelay(point);
   svg.append(marker);
   observationList.prepend(card);
   prairieFeedList.prepend(feedItem);
-  plotted.set(event.event_id, { event, marker, card, feedItem, sweepDelay });
+  plotted.set(event.event_id, { event, marker, card, feedItem });
   plottedOrder.unshift(event.event_id);
   enforceVisibleLimit();
   syncPrairieFeed();
-  syncRadarPulseLoop();
-  scheduleObservationForCurrentSweep(event.event_id);
 
   if (animate && isMobileLayout()) {
     selectObservation(event.event_id, { scrollCard: false });
@@ -437,7 +429,6 @@ function enforceVisibleLimit(): void {
   }
 
   syncPrairieFeed();
-  syncRadarPulseLoop();
 
   if (isMobileLayout() && !selectedObservationId) {
     selectFirstObservation();
@@ -538,17 +529,14 @@ function createPrairieFeedItem(event: PrairieDogEvent): HTMLElement {
   button.type = "button";
   button.addEventListener("mouseenter", () => {
     showFeedObservationPreview(event);
-    pulseObservation(event.event_id);
   });
   button.addEventListener("mouseleave", () => hideHoverPreview());
   button.addEventListener("focus", () => {
     showFeedObservationPreview(event);
-    pulseObservation(event.event_id);
   });
   button.addEventListener("blur", () => hideHoverPreview());
   button.addEventListener("click", () => {
     showFeedObservationPreview(event);
-    pulseObservation(event.event_id);
   });
 
   const marker = document.createElement("span");
@@ -584,115 +572,6 @@ function syncPrairieFeed(): void {
     observation.feedItem.style.setProperty("--feed-fade", String(Math.max(0.28, 1 - index * 0.045)));
     observation.marker.style.setProperty("--marker-opacity", String(Math.max(0.34, 0.64 - index * 0.032)));
   });
-}
-
-function syncRadarPulseLoop(): void {
-  if (!radarEnabled || radarPulseInterval != null || plottedOrder.length === 0) {
-    return;
-  }
-
-  if (radarStartedAt === 0) {
-    radarStartedAt = performance.now();
-  }
-
-  pulseSweptMarkers();
-  radarPulseInterval = window.setInterval(pulseSweptMarkers, RADAR_SWEEP_MS);
-}
-
-function setRadarEnabled(nextEnabled: boolean): void {
-  radarEnabled = nextEnabled;
-  radarToggle.setAttribute("aria-pressed", String(nextEnabled));
-  mapShell.classList.toggle("map-shell-radar", nextEnabled);
-
-  if (nextEnabled) {
-    const initialOffset = getRadarInitialOffset();
-    radarStartedAt = performance.now() - initialOffset;
-    mapShell.style.setProperty("--radar-animation-delay", `${-initialOffset}ms`);
-    syncRadarPulseLoop();
-    return;
-  }
-
-  if (radarPulseInterval != null) {
-    window.clearInterval(radarPulseInterval);
-    radarPulseInterval = undefined;
-  }
-
-  for (const observation of plotted.values()) {
-    observation.marker.classList.remove("marker-swept");
-  }
-
-  radarStartedAt = 0;
-  mapShell.style.removeProperty("--radar-animation-delay");
-}
-
-function pulseSweptMarkers(): void {
-  for (const eventId of plottedOrder) {
-    const observation = plotted.get(eventId);
-    if (!observation) {
-      continue;
-    }
-
-    window.setTimeout(() => {
-      pulseObservation(eventId);
-    }, getRemainingSweepDelay(observation.sweepDelay));
-  }
-}
-
-function getRadarInitialOffset(): number {
-  let earliestDelay = Number.POSITIVE_INFINITY;
-
-  for (const eventId of plottedOrder) {
-    const observation = plotted.get(eventId);
-    if (observation) {
-      earliestDelay = Math.min(earliestDelay, observation.sweepDelay);
-    }
-  }
-
-  return Number.isFinite(earliestDelay) ? earliestDelay : 0;
-}
-
-function scheduleObservationForCurrentSweep(eventId: string): void {
-  if (!radarEnabled || radarStartedAt === 0) {
-    return;
-  }
-
-  const observation = plotted.get(eventId);
-  if (!observation) {
-    return;
-  }
-
-  window.setTimeout(() => {
-    pulseObservation(eventId);
-  }, getRemainingSweepDelay(observation.sweepDelay));
-}
-
-function pulseObservation(eventId: string): void {
-  const observation = plotted.get(eventId);
-  if (!observation) {
-    return;
-  }
-
-  observation.marker.classList.remove("marker-swept");
-  window.requestAnimationFrame(() => {
-    observation.marker.classList.add("marker-swept");
-    window.setTimeout(() => observation.marker.classList.remove("marker-swept"), SWEEP_PULSE_MS);
-  });
-}
-
-function getRadarSweepDelay(point: [number, number]): number {
-  const centerX = 480;
-  const centerY = 305;
-  const radians = Math.atan2(point[1] - centerY, point[0] - centerX);
-  const degrees = (radians * 180) / Math.PI;
-  const normalizedDegrees = (degrees + 360) % 360;
-  const cssDegrees = (normalizedDegrees + RADAR_CSS_START_DEGREES) % 360;
-  return (cssDegrees / 360) * RADAR_SWEEP_MS;
-}
-
-function getRemainingSweepDelay(sweepDelay: number): number {
-  const elapsed = (performance.now() - radarStartedAt) % RADAR_SWEEP_MS;
-  const remaining = (sweepDelay - elapsed + RADAR_SWEEP_MS) % RADAR_SWEEP_MS;
-  return remaining > RADAR_SWEEP_MS - RADAR_PHASE_WRAP_TOLERANCE_MS ? 0 : remaining;
 }
 
 function selectFirstObservation(): void {
@@ -963,7 +842,15 @@ function clamp(value: number, min: number, max: number): number {
 
 function getPreviewImageUrl(event: PrairieDogEvent): string | undefined {
   const image = event.media?.find((item) => item.type === "image" && (item.source_media_url || item.thumbnail_url));
-  return image?.source_media_url ?? image?.thumbnail_url;
+  return getLargeObservationImageUrl(image?.source_media_url ?? image?.thumbnail_url);
+}
+
+function getLargeObservationImageUrl(url: string | undefined): string | undefined {
+  if (!url) {
+    return undefined;
+  }
+
+  return url.replace(/\/(?:square|small|medium)\.(jpe?g|png|webp)(?=($|\?))/i, "/large.$1");
 }
 
 function formatObservationTime(event: PrairieDogEvent): string {

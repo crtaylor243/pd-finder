@@ -71,31 +71,6 @@ h2 {
   padding-top: 0.12rem;
 }
 
-.radar-toggle {
-  min-height: 2rem;
-  padding: 0 0.78rem;
-  border: 1px solid rgba(177, 246, 190, 0.2);
-  border-radius: 999px;
-  color: rgba(216, 245, 223, 0.72);
-  background: rgba(7, 17, 11, 0.55);
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.78rem;
-  font-weight: 800;
-}
-
-.radar-toggle[aria-pressed="true"] {
-  border-color: rgba(57, 255, 118, 0.62);
-  color: #dfffe5;
-  background: rgba(16, 68, 35, 0.76);
-  box-shadow: 0 0 18px rgba(57, 255, 118, 0.22);
-}
-
-.radar-toggle:focus-visible {
-  outline: 2px solid rgba(53, 217, 255, 0.82);
-  outline-offset: 2px;
-}
-
 .status {
   display: inline-flex;
   align-items: center;
@@ -119,8 +94,13 @@ h2 {
   box-shadow: 0 0 16px rgba(57, 255, 118, 0.8);
 }
 
-.status-waiting::before {
-  background: #ffe17b;
+.status-offline {
+  color: rgba(198, 206, 199, 0.78);
+}
+
+.status-offline::before {
+  background: #858f88;
+  box-shadow: none;
 }
 
 .map-shell {
@@ -134,52 +114,8 @@ h2 {
   background-size: 48px 48px;
 }
 
-.map-shell::before,
-.map-shell::after {
-  position: absolute;
-  display: none;
-  pointer-events: none;
-  content: "";
-}
-
-.map-shell-radar::before,
-.map-shell-radar::after {
-  display: block;
-}
-
-.map-shell::before {
-  inset: 9%;
-  z-index: 1;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle, transparent 0 72%, rgba(57, 255, 118, 0.08) 72.3% 72.7%, transparent 73%);
-  opacity: 0.34;
-}
-
-.map-shell::after {
-  top: 50%;
-  left: 50%;
-  z-index: 3;
-  width: 180vmax;
-  height: 180vmax;
-  background: conic-gradient(
-    from 0deg,
-    transparent 0deg 312deg,
-    rgba(57, 255, 118, 0.05) 326deg,
-    rgba(57, 255, 118, 0.16) 348deg,
-    rgba(57, 255, 118, 0.32) 360deg
-  );
-  mix-blend-mode: screen;
-  opacity: 0.55;
-  transform: translate(-50%, -50%) rotate(0deg);
-  transform-origin: center;
-  animation: radar-sweep 7500ms linear infinite;
-  animation-delay: var(--radar-animation-delay, 0ms);
-}
-
 #map {
   position: relative;
-  z-index: 2;
   display: block;
   width: 100%;
   height: 100%;
@@ -252,18 +188,6 @@ h2 {
   opacity: 1;
 }
 
-.marker-swept {
-  opacity: 1;
-}
-
-.marker-swept .marker-dot {
-  animation: radar-hit 780ms ease-out;
-}
-
-.marker-swept .marker-ring {
-  animation: radar-hit-ring 780ms ease-out;
-}
-
 .marker:focus .marker-dot,
 .marker-selected .marker-dot {
   fill: #35d9ff;
@@ -282,10 +206,6 @@ h2 {
   transform-origin: center;
 }
 
-.marker-live .marker-ring {
-  animation: ripple 2100ms ease-out infinite;
-}
-
 .marker-yellow .marker-ring {
   stroke: #ffe17b;
 }
@@ -302,47 +222,6 @@ h2 {
 
 .marker-ring-delay {
   animation-delay: 700ms;
-}
-
-@keyframes ripple {
-  0% {
-    opacity: 0.8;
-    transform: scale(0.2);
-  }
-
-  100% {
-    opacity: 0;
-    transform: scale(3.4);
-  }
-}
-
-@keyframes radar-sweep {
-  to {
-    transform: translate(-50%, -50%) rotate(360deg);
-  }
-}
-
-@keyframes radar-hit {
-  0%,
-  100% {
-    transform: scale(1);
-  }
-
-  45% {
-    transform: scale(1.45);
-  }
-}
-
-@keyframes radar-hit-ring {
-  0% {
-    opacity: 0.85;
-    transform: scale(0.6);
-  }
-
-  100% {
-    opacity: 0;
-    transform: scale(2.6);
-  }
 }
 
 @keyframes selected-ripple {
@@ -378,31 +257,6 @@ h2 {
     opacity: 1;
     transform: scale(1);
   }
-}
-
-.empty-state {
-  position: absolute;
-  left: 1.5rem;
-  bottom: 1.5rem;
-  z-index: 4;
-  display: grid;
-  gap: 0.25rem;
-  max-width: min(360px, calc(100% - 3rem));
-  color: #ddffe3;
-  pointer-events: none;
-  text-shadow: 0 1px 16px rgba(0, 0, 0, 0.72);
-  transition:
-    opacity 200ms ease,
-    transform 200ms ease;
-}
-
-.empty-state strong {
-  font-size: 1rem;
-}
-
-.empty-state span {
-  color: #a7c8ae;
-  font-size: 0.92rem;
 }
 
 .hover-preview {
@@ -660,8 +514,6 @@ h2 {
 }
 
 @media (max-width: 880px) {
-  .map-shell::before,
-  .map-shell::after,
   .prairie-feed {
     display: none;
   }
@@ -723,7 +575,7 @@ h2 {
   .observation-card {
     flex: 0 0 100%;
     display: grid;
-    grid-template-rows: minmax(0, 58%) minmax(0, 42%);
+    grid-template-rows: minmax(0, 62%) minmax(0, 38%);
     gap: 0;
     min-width: 0;
     min-height: 0;
@@ -757,7 +609,7 @@ h2 {
     min-width: 0;
     min-height: 0;
     overflow: hidden;
-    padding: 0.85rem 0.85rem 0.45rem;
+    padding: 0.7rem;
     background:
       linear-gradient(rgba(57, 255, 118, 0.12), rgba(57, 255, 118, 0.03)),
       rgba(0, 0, 0, 0.18);
@@ -770,9 +622,9 @@ h2 {
 
   .observation-card img {
     display: block;
-    width: 100%;
+    width: auto;
     max-width: 100%;
-    height: 100%;
+    height: auto;
     max-height: 100%;
     border: 1px solid rgba(177, 246, 190, 0.22);
     border-radius: 8px;
